@@ -1,0 +1,304 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  super_admin
+  coaching_admin
+  student
+}
+
+enum ApprovalStatus {
+  pending
+  approved
+  rejected
+}
+
+enum DifficultyLevel {
+  easy
+  medium
+  hard
+}
+
+enum TestType {
+  topic_wise
+  full_length
+}
+
+enum OptionChoice {
+  A
+  B
+  C
+  D
+}
+
+enum PaymentState {
+  pending
+  success
+  failed
+}
+
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  email        String   @unique @db.VarChar(255)
+  passwordHash String   @map("password_hash")
+  role         UserRole
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  coachingInstitute CoachingInstitute?
+  student           Student?
+  approvedCoachings CoachingInstitute[] @relation("CoachingApprovedBy")
+  approvedStudents  Student[]           @relation("StudentApprovedBy")
+  createdQuestions  Question[]          @relation("QuestionCreatedBy")
+
+  @@index([email], map: "idx_users_email")
+  @@map("users")
+}
+
+model CoachingInstitute {
+  id              String         @id @default(uuid()) @db.Uuid
+  userId          String         @unique @map("user_id") @db.Uuid
+  instituteName   String         @map("institute_name") @db.VarChar(255)
+  adminName       String         @map("admin_name") @db.VarChar(255)
+  phoneNumber     String         @map("phone_number") @db.VarChar(20)
+  status          ApprovalStatus @default(pending)
+  approvedBy      String?        @map("approved_by") @db.Uuid
+  approvedAt      DateTime?      @map("approved_at")
+  rejectionReason String?        @map("rejection_reason")
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+
+  user       User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  approver   User?        @relation("CoachingApprovedBy", fields: [approvedBy], references: [id], onDelete: SetNull)
+  students   Student[]
+  questions  Question[]
+  testSeries TestSeries[]
+  tests      Test[]
+
+  @@map("coaching_institutes")
+}
+
+model Student {
+  id               String         @id @default(uuid()) @db.Uuid
+  userId           String         @unique @map("user_id") @db.Uuid
+  name             String         @db.VarChar(255)
+  phoneNumber      String         @map("phone_number") @db.VarChar(20)
+  coachingId       String         @map("coaching_id") @db.Uuid
+  examPreparingFor String         @map("exam_preparing_for") @db.VarChar(100)
+  status           ApprovalStatus @default(pending)
+  approvedBy       String?        @map("approved_by") @db.Uuid
+  approvedAt       DateTime?      @map("approved_at")
+  rejectionReason  String?        @map("rejection_reason")
+  createdAt        DateTime       @default(now()) @map("created_at")
+  updatedAt        DateTime       @updatedAt @map("updated_at")
+
+  user              User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  coachingInstitute CoachingInstitute @relation(fields: [coachingId], references: [id], onDelete: Cascade)
+  approver          User?             @relation("StudentApprovedBy", fields: [approvedBy], references: [id], onDelete: SetNull)
+  purchases         Purchase[]
+  examAttempts      ExamAttempt[]
+  results           Result[]
+
+  @@index([coachingId], map: "idx_students_coaching_id")
+  @@map("students")
+}
+
+model Question {
+  id               String          @id @default(uuid()) @db.Uuid
+  coachingId       String          @map("coaching_id") @db.Uuid
+  subject          String          @db.VarChar(100)
+  topic            String          @db.VarChar(100)
+  questionText     String          @map("question_text")
+  questionImageUrl String?         @map("question_image_url")
+  optionA          String          @map("option_a")
+  optionB          String          @map("option_b")
+  optionC          String          @map("option_c")
+  optionD          String          @map("option_d")
+  correctOption    OptionChoice    @map("correct_option")
+  marks            Int
+  negativeMarks    Int             @default(0) @map("negative_marks")
+  difficulty       DifficultyLevel
+  createdBy        String?         @map("created_by") @db.Uuid
+  createdAt        DateTime        @default(now()) @map("created_at")
+  updatedAt        DateTime        @updatedAt @map("updated_at")
+
+  coachingInstitute CoachingInstitute @relation(fields: [coachingId], references: [id], onDelete: Cascade)
+  creator           User?             @relation("QuestionCreatedBy", fields: [createdBy], references: [id], onDelete: SetNull)
+  testQuestions     TestQuestion[]
+  studentAnswers    StudentAnswer[]
+
+  @@index([coachingId], map: "idx_questions_coaching_id")
+  @@map("questions")
+}
+
+model TestSeries {
+  id              String   @id @default(uuid()) @db.Uuid
+  coachingId      String   @map("coaching_id") @db.Uuid
+  name            String   @db.VarChar(255)
+  description     String?
+  examType        String   @map("exam_type") @db.VarChar(100)
+  subjectsCovered String[] @default([]) @map("subjects_covered")
+  totalTests      Int      @default(0) @map("total_tests")
+  price           Decimal  @default(0) @db.Decimal(10, 2)
+  isPublic        Boolean  @default(false) @map("is_public")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  coachingInstitute CoachingInstitute @relation(fields: [coachingId], references: [id], onDelete: Cascade)
+  tests             Test[]
+  purchases         Purchase[]
+
+  @@index([coachingId], map: "idx_test_series_coaching_id")
+  @@map("test_series")
+}
+
+model Test {
+  id              String    @id @default(uuid()) @db.Uuid
+  coachingId      String    @map("coaching_id") @db.Uuid
+  testSeriesId    String?   @map("test_series_id") @db.Uuid
+  title           String    @db.VarChar(255)
+  type            TestType
+  totalQuestions  Int       @map("total_questions")
+  totalMarks      Int       @map("total_marks")
+  durationMinutes Int       @map("duration_minutes")
+  scheduledStart  DateTime? @map("scheduled_start")
+  scheduledEnd    DateTime? @map("scheduled_end")
+  isActive        Boolean   @default(true) @map("is_active")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  coachingInstitute CoachingInstitute @relation(fields: [coachingId], references: [id], onDelete: Cascade)
+  testSeries        TestSeries?       @relation(fields: [testSeriesId], references: [id], onDelete: SetNull)
+  testSections      TestSection[]
+  testQuestions     TestQuestion[]
+  examAttempts      ExamAttempt[]
+  results           Result[]
+
+  @@index([coachingId], map: "idx_tests_coaching_id")
+  @@map("tests")
+}
+
+model TestSection {
+  id              String   @id @default(uuid()) @db.Uuid
+  testId          String   @map("test_id") @db.Uuid
+  sectionName     String   @map("section_name") @db.VarChar(100)
+  questionCount   Int      @map("question_count")
+  durationMinutes Int      @map("duration_minutes")
+  orderIndex      Int      @map("order_index")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  test            Test           @relation(fields: [testId], references: [id], onDelete: Cascade)
+  testQuestions   TestQuestion[]
+  currentAttempts ExamAttempt[]
+
+  @@index([testId], map: "idx_test_sections_test_id")
+  @@map("test_sections")
+}
+
+model TestQuestion {
+  id         String   @id @default(uuid()) @db.Uuid
+  testId     String   @map("test_id") @db.Uuid
+  questionId String   @map("question_id") @db.Uuid
+  sectionId  String?  @map("section_id") @db.Uuid
+  orderIndex Int      @map("order_index")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  test     Test         @relation(fields: [testId], references: [id], onDelete: Cascade)
+  question Question     @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  section  TestSection? @relation(fields: [sectionId], references: [id], onDelete: SetNull)
+
+  @@unique([testId, questionId], map: "uq_test_question")
+  @@index([testId], map: "idx_test_questions_test_id")
+  @@map("test_questions")
+}
+
+model Purchase {
+  id            String       @id @default(uuid()) @db.Uuid
+  studentId     String       @map("student_id") @db.Uuid
+  testSeriesId  String       @map("test_series_id") @db.Uuid
+  amountPaid    Decimal      @map("amount_paid") @db.Decimal(10, 2)
+  paymentId     String?      @unique @map("payment_id") @db.VarChar(255)
+  paymentStatus PaymentState @default(pending) @map("payment_status")
+  purchasedAt   DateTime     @default(now()) @map("purchased_at")
+  createdAt     DateTime     @default(now()) @map("created_at")
+
+  student    Student    @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  testSeries TestSeries @relation(fields: [testSeriesId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, testSeriesId], map: "uq_student_series_purchase")
+  @@index([studentId], map: "idx_purchases_student_id")
+  @@map("purchases")
+}
+
+model ExamAttempt {
+  id               String    @id @default(uuid()) @db.Uuid
+  studentId        String    @map("student_id") @db.Uuid
+  testId           String    @map("test_id") @db.Uuid
+  startedAt        DateTime  @default(now()) @map("started_at")
+  submittedAt      DateTime? @map("submitted_at")
+  isSubmitted      Boolean   @default(false) @map("is_submitted")
+  currentSectionId String?   @map("current_section_id") @db.Uuid
+  score            Decimal?  @db.Decimal(10, 2)
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  student        Student         @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  test           Test            @relation(fields: [testId], references: [id], onDelete: Cascade)
+  currentSection TestSection?    @relation(fields: [currentSectionId], references: [id], onDelete: SetNull)
+  studentAnswers StudentAnswer[]
+  result         Result?
+
+  @@index([studentId], map: "idx_exam_attempts_student_id")
+  @@index([testId], map: "idx_exam_attempts_test_id")
+  @@map("exam_attempts")
+}
+
+model StudentAnswer {
+  id               String        @id @default(uuid()) @db.Uuid
+  attemptId        String        @map("attempt_id") @db.Uuid
+  questionId       String        @map("question_id") @db.Uuid
+  selectedOption   OptionChoice? @map("selected_option")
+  isMarkedReview   Boolean       @default(false) @map("is_marked_review")
+  timeSpentSeconds Int           @default(0) @map("time_spent_seconds")
+  savedAt          DateTime      @default(now()) @map("saved_at")
+  createdAt        DateTime      @default(now()) @map("created_at")
+  updatedAt        DateTime      @updatedAt @map("updated_at")
+
+  examAttempt ExamAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  question    Question    @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@unique([attemptId, questionId], map: "uq_attempt_question")
+  @@index([attemptId], map: "idx_student_answers_attempt_id")
+  @@map("student_answers")
+}
+
+model Result {
+  id                 String   @id @default(uuid()) @db.Uuid
+  attemptId          String   @unique @map("attempt_id") @db.Uuid
+  studentId          String   @map("student_id") @db.Uuid
+  testId             String   @map("test_id") @db.Uuid
+  totalScore         Decimal  @default(0) @map("total_score") @db.Decimal(10, 2)
+  correctCount       Int      @default(0) @map("correct_count")
+  wrongCount         Int      @default(0) @map("wrong_count")
+  unattemptedCount   Int      @default(0) @map("unattempted_count")
+  accuracyPercentage Decimal  @default(0) @map("accuracy_percentage") @db.Decimal(5, 2)
+  rank               Int?
+  generatedAt        DateTime @default(now()) @map("generated_at")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  examAttempt ExamAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  student     Student     @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  test        Test        @relation(fields: [testId], references: [id], onDelete: Cascade)
+
+  @@index([testId], map: "idx_results_test_id")
+  @@map("results")
+}
