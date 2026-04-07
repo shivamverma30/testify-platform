@@ -255,6 +255,99 @@ export type QuestionPayload = {
   difficulty: "easy" | "medium" | "hard";
 };
 
+export type AiGeneratedQuestion = {
+  subject: string;
+  topic: string;
+  question_text: string;
+  option_a: string;
+  option_b: string;
+  option_c: string;
+  option_d: string;
+  correct_option: "A" | "B" | "C" | "D";
+  correct_answer: string;
+  marks: number;
+  negative_marks: number;
+  difficulty: "easy" | "medium" | "hard";
+  approved?: boolean;
+};
+
+export type AiGeneratedSection = {
+  section_name: string;
+  subject: string;
+  topic: string;
+  duration_minutes: number;
+  expected_question_count?: number;
+  generated_question_count?: number;
+  questions: AiGeneratedQuestion[];
+};
+
+export type AiTopicGenerationPayload = {
+  subject: string;
+  topic: string;
+  question_count: number;
+  marks: number;
+  negative_marks: number;
+  difficulty: "easy" | "medium" | "hard";
+  duration: number;
+};
+
+export type AiTopicGenerationResponse = {
+  test_type: "topic_wise";
+  subject: string;
+  topic: string;
+  requested_question_count: number;
+  generated_question_count: number;
+  marks_per_question: number;
+  negative_marks: number;
+  difficulty: "easy" | "medium" | "hard";
+  duration_minutes: number;
+  questions: AiGeneratedQuestion[];
+};
+
+export type AiFullGenerationPayload = Partial<{
+  marks: number;
+  negative_marks: number;
+  difficulty: "easy" | "medium" | "hard";
+}>;
+
+export type AiFullGenerationResponse = {
+  test_type: "full_length";
+  difficulty: "easy" | "medium" | "hard";
+  marks_per_question: number;
+  negative_marks: number;
+  total_questions: number;
+  total_duration_minutes: number;
+  sections: AiGeneratedSection[];
+};
+
+export type AiCreateTestPayload = {
+  title: string;
+  test_type: "topic_wise" | "full_length";
+  duration_minutes: number;
+  sections: Array<{
+    section_name: string;
+    duration_minutes: number;
+    questions: AiGeneratedQuestion[];
+  }>;
+};
+
+export type AiCreatedTestResponse = {
+  id: string;
+  title: string;
+  type: "topic_wise" | "full_length";
+  total_questions: number;
+  total_marks: number;
+  duration_minutes: number;
+  created_at: string;
+  sections: Array<{
+    id: string;
+    title: string;
+    order_index: number;
+    question_count: number;
+    duration_minutes: number;
+  }>;
+};
+
 export type AdminTest = {
   id: string;
   coaching_id: string;
@@ -1017,6 +1110,27 @@ export const createTest = (payload: {
   test_series_id?: string | null;
 }) => {
   return request<AdminTest>("/api/tests", {
+    method: "POST",
+    body: payload,
+  });
+};
+
+export const generateAiTopicTest = (payload: AiTopicGenerationPayload) => {
+  return request<AiTopicGenerationResponse>("/api/tests/generate-ai-topic", {
+    method: "POST",
+    body: payload,
+  });
+};
+
+export const generateAiFullTest = (payload: AiFullGenerationPayload = {}) => {
+  return request<AiFullGenerationResponse>("/api/tests/generate-ai-full", {
+    method: "POST",
+    body: payload,
+  });
+};
+
+export const createAiGeneratedTest = (payload: AiCreateTestPayload) => {
+  return request<AiCreatedTestResponse>("/api/tests/create-ai", {
     method: "POST",
     body: payload,
   });

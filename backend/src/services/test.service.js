@@ -3,6 +3,44 @@ const { sendTestScheduledEmail } = require("./email.service")
 
 const ALLOWED_TEST_TYPES = ["topic_wise", "full_length"]
 const ALLOWED_VISIBILITY_VALUES = ["public", "private"]
+const ALLOWED_OPTIONS = ["A", "B", "C", "D"]
+const ALLOWED_DIFFICULTIES = ["easy", "medium", "hard"]
+const AI_SERVICE_BASE_URL = process.env.AI_SERVICE_BASE_URL || "http://localhost:8000"
+
+const NIMCET_SECTION_BLUEPRINT = [
+  {
+    key: "mathematics",
+    section_name: "Mathematics",
+    subject: "Mathematics",
+    topic: "NIMCET Mathematics",
+    question_count: 50,
+    duration_minutes: 70,
+  },
+  {
+    key: "reasoning",
+    section_name: "Reasoning",
+    subject: "Analytical Ability & Logical Reasoning",
+    topic: "NIMCET Reasoning",
+    question_count: 40,
+    duration_minutes: 30,
+  },
+  {
+    key: "computer",
+    section_name: "Computer",
+    subject: "Computer Awareness & General English",
+    topic: "NIMCET Computer Awareness",
+    question_count: 20,
+    duration_minutes: 20,
+  },
+  {
+    key: "english",
+    section_name: "English",
+    subject: "Computer Awareness & General English",
+    topic: "NIMCET English",
+    question_count: 10,
+    duration_minutes: 20,
+  },
+]
 
 const createServiceError = (message, statusCode) => {
   const error = new Error(message)
@@ -92,6 +130,42 @@ const parsePositiveInt = (value, fieldName) => {
   return parsed
 }
 
+const parseNonNegativeInt = (value, fieldName, defaultValue = 0) => {
+  if (value === undefined || value === null || value === "") {
+    return defaultValue
+  }
+
+  const parsed = Number(value)
+
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    throw createServiceError(`${fieldName} must be a non-negative integer`, 400)
+  }
+
+  return parsed
+}
+
+const normalizeText = (value) => {
+  if (value === undefined || value === null) {
+    return ""
+  }
+
+  return String(value).trim()
+}
+
+const normalizeDifficulty = (value, fallback = "medium") => {
+  if (value === undefined || value === null || value === "") {
+    return fallback
+  }
+
+  const normalized = String(value).trim().toLowerCase()
+
+  if (!ALLOWED_DIFFICULTIES.includes(normalized)) {
+    throw createServiceError("difficulty must be one of easy, medium, hard", 400)
+  }
+
+  return normalized
+}
+
 const parseScheduleDate = (value, fieldName) => {
   if (!value) {
     throw createServiceError(`${fieldName} is required`, 400)
@@ -117,6 +191,274 @@ const parsePrice = (value) => {
   }
 
   return parsed
+}
+
+const parseAiResponseBody = (bodyText) => {
+  if (!bodyText) {
+    return null
+  }
+
+  try {
+    return JSON.parse(bodyText)
+  } catch {
+    return null
+  }
+}
+
+const callAiService = async (endpoint, payload = {}) => {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 120000)
+
+  try {
+    const response = await fetch(`${AI_SERVICE_BASE_URL}${endpoint}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    })
+
+    const bodyText = await response.text()
+    const parsedBody = parseAiResponseBody(bodyText)
+
+    if (!response.ok) {
+      throw createServiceError(
+        parsedBody?.message || parsedBody?.detail || `AI service request failed with status ${response.status}`,
+        502,
+      )
+    }
+
+    return parsedBody
+  } catch (error) {
+    if (error.name === "AbortError") {
+      throw createServiceError("AI service request timed out", 504)
+    }
+
+    if (error.statusCode) {
+      throw error
+    }
+
+    throw createServiceError("failed to connect to AI service", 502)
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
+const extractTopicQuestionList = (payload) => {
+  if (Array.isArray(payload)) {
+    return payload
+  }
+
+  if (Array.isArray(payload?.questions)) {
+    return payload.questions
+  }
+
+  if (Array.isArray(payload?.data)) {
+    return payload.data
+  }
+
+  if (Array.isArray(payload?.result)) {
+    return payload.result
+  }
+
+  return []
+}
+
+const extractSectionQuestionList = (section) => {
+  if (Array.isArray(section)) {
+    return section
+  }
+
+  if (Array.isArray(section?.questions)) {
+    return section.questions
+  }
+
+  if (Array.isArray(section?.items)) {
+    return section.items
+  }
+
+  if (Array.isArray(section?.data)) {
+    return section.data
+  }
+
+  return []
+}
+
+const extractFullSectionList = (payload) => {
+  const candidate = payload?.sections || payload?.data?.sections || payload?.data || payload
+
+  if (Array.isArray(candidate)) {
+    return candidate
+  }
+
+  if (candidate && typeof candidate === "object") {
+    return Object.entries(candidate).map(([sectionName, value]) => {
+      if (Array.isArray(value)) {
+        return {
+          section_name: sectionName,
+          questions: value,
+        }
+      }
+
+      if (value && typeof value === "object") {
+        return {
+          section_name: value.section_name || value.title || value.name || sectionName,
+          ...value,
+        }
+      }
+
+      return {
+        section_name: sectionName,
+        questions: [],
+      }
+    })
+  }
+
+  return []
+}
+
+const normalizeSectionKey = (value) => {
+  const normalized = normalizeText(value).toLowerCase()
+
+  if (!normalized) {
+    return ""
+  }
+
+  if (normalized.includes("math")) {
+    return "mathematics"
+  }
+
+  if (normalized.includes("reason") || normalized.includes("logical") || normalized.includes("analytical")) {
+    return "reasoning"
+  }
+
+  if (normalized.includes("computer")) {
+    return "computer"
+  }
+
+  if (normalized.includes("english")) {
+    return "english"
+  }
+
+  return ""
+}
+
+const extractOptionsFromQuestion = (rawQuestion) => {
+  if (Array.isArray(rawQuestion?.options)) {
+    const options = rawQuestion.options.map((item) => normalizeText(item)).filter(Boolean)
+
+    if (options.length >= 4) {
+      return {
+        A: options[0],
+        B: options[1],
+        C: options[2],
+        D: options[3],
+      }
+    }
+  }
+
+  if (rawQuestion?.options && typeof rawQuestion.options === "object") {
+    const options = rawQuestion.options
+    const optionA = normalizeText(options.A ?? options.a)
+    const optionB = normalizeText(options.B ?? options.b)
+    const optionC = normalizeText(options.C ?? options.c)
+    const optionD = normalizeText(options.D ?? options.d)
+
+    if (optionA && optionB && optionC && optionD) {
+      return {
+        A: optionA,
+        B: optionB,
+        C: optionC,
+        D: optionD,
+      }
+    }
+  }
+
+  const optionA = normalizeText(rawQuestion.option_a || rawQuestion.optionA || rawQuestion.A || rawQuestion.a)
+  const optionB = normalizeText(rawQuestion.option_b || rawQuestion.optionB || rawQuestion.B || rawQuestion.b)
+  const optionC = normalizeText(rawQuestion.option_c || rawQuestion.optionC || rawQuestion.C || rawQuestion.c)
+  const optionD = normalizeText(rawQuestion.option_d || rawQuestion.optionD || rawQuestion.D || rawQuestion.d)
+
+  if (!optionA || !optionB || !optionC || !optionD) {
+    throw createServiceError("generated question must include four options", 502)
+  }
+
+  return {
+    A: optionA,
+    B: optionB,
+    C: optionC,
+    D: optionD,
+  }
+}
+
+const resolveCorrectOption = (rawCorrectAnswer, options) => {
+  const normalized = normalizeText(rawCorrectAnswer)
+
+  if (!normalized) {
+    throw createServiceError("generated question must include a correct answer", 502)
+  }
+
+  const normalizedUpper = normalized.toUpperCase()
+
+  if (ALLOWED_OPTIONS.includes(normalizedUpper)) {
+    return normalizedUpper
+  }
+
+  const matchedOption = ALLOWED_OPTIONS.find(
+    (option) => options[option].trim().toLowerCase() === normalized.toLowerCase(),
+  )
+
+  if (!matchedOption) {
+    throw createServiceError("correct answer does not match provided options", 502)
+  }
+
+  return matchedOption
+}
+
+const normalizeGeneratedQuestion = (rawQuestion, defaults = {}) => {
+  const questionText = normalizeText(
+    rawQuestion.question || rawQuestion.question_text || rawQuestion.questionText || rawQuestion.prompt,
+  )
+
+  if (!questionText) {
+    throw createServiceError("generated question text is missing", 502)
+  }
+
+  const options = extractOptionsFromQuestion(rawQuestion)
+  const correctOption = resolveCorrectOption(
+    rawQuestion.correct_option ||
+      rawQuestion.correctOption ||
+      rawQuestion.correct_answer ||
+      rawQuestion.correctAnswer ||
+      rawQuestion.answer,
+    options,
+  )
+
+  const marks = parsePositiveInt(rawQuestion.marks ?? defaults.marks, "marks")
+  const negativeMarks = parseNonNegativeInt(
+    rawQuestion.negative_marks ?? rawQuestion.negativeMarks ?? defaults.negative_marks,
+    "negative_marks",
+    0,
+  )
+  const difficulty = normalizeDifficulty(rawQuestion.difficulty ?? defaults.difficulty, "medium")
+  const subject = normalizeText(rawQuestion.subject || defaults.subject) || "General"
+  const topic = normalizeText(rawQuestion.topic || defaults.topic) || "General"
+
+  return {
+    subject,
+    topic,
+    question_text: questionText,
+    option_a: options.A,
+    option_b: options.B,
+    option_c: options.C,
+    option_d: options.D,
+    correct_option: correctOption,
+    correct_answer: options[correctOption],
+    marks,
+    negative_marks: negativeMarks,
+    difficulty,
+  }
 }
 
 const resolveOwnedTests = async (coachingId, testIds = []) => {
@@ -1269,6 +1611,320 @@ const removeQuestionFromSection = async (sectionId, questionId, user) => {
   }
 }
 
+const generateAiTopicTest = async (payload) => {
+  const subject = normalizeText(payload.subject)
+  const topic = normalizeText(payload.topic)
+  const questionCount = parsePositiveInt(payload.question_count, "question_count")
+  const marks = parsePositiveInt(payload.marks, "marks")
+  const negativeMarks = parseNonNegativeInt(payload.negative_marks, "negative_marks", 0)
+  const difficulty = normalizeDifficulty(payload.difficulty, "medium")
+  const durationMinutes = parsePositiveInt(payload.duration, "duration")
+
+  if (!subject) {
+    throw createServiceError("subject is required", 400)
+  }
+
+  if (!topic) {
+    throw createServiceError("topic is required", 400)
+  }
+
+  const aiPayload = {
+    subject,
+    topic,
+    question_count: questionCount,
+    difficulty,
+    marks,
+    negative_marks: negativeMarks,
+    duration: durationMinutes,
+  }
+
+  const aiResponse = await callAiService("/generate-topic-test", aiPayload)
+  const rawQuestions = extractTopicQuestionList(aiResponse)
+
+  if (!rawQuestions.length) {
+    throw createServiceError("AI service returned no questions", 502)
+  }
+
+  const normalizedQuestions = rawQuestions
+    .slice(0, questionCount)
+    .map((question) =>
+      normalizeGeneratedQuestion(question, {
+        subject,
+        topic,
+        marks,
+        negative_marks: negativeMarks,
+        difficulty,
+      }),
+    )
+
+  return {
+    test_type: "topic_wise",
+    subject,
+    topic,
+    requested_question_count: questionCount,
+    generated_question_count: normalizedQuestions.length,
+    marks_per_question: marks,
+    negative_marks: negativeMarks,
+    difficulty,
+    duration_minutes: durationMinutes,
+    questions: normalizedQuestions,
+  }
+}
+
+const generateAiFullTest = async (payload) => {
+  const marks = parsePositiveInt(payload?.marks ?? 4, "marks")
+  const negativeMarks = parseNonNegativeInt(payload?.negative_marks ?? 1, "negative_marks", 0)
+  const difficulty = normalizeDifficulty(payload?.difficulty, "medium")
+
+  const aiPayload = {
+    difficulty,
+    marks,
+    negative_marks: negativeMarks,
+  }
+
+  const aiResponse = await callAiService("/generate-full-test", aiPayload)
+  const rawSections = extractFullSectionList(aiResponse)
+
+  const normalizedSections = NIMCET_SECTION_BLUEPRINT.map((blueprint) => {
+    const matchedSection = rawSections.find((section) => {
+      const keyFromName = normalizeSectionKey(
+        section.section_name || section.sectionName || section.title || section.name,
+      )
+
+      if (keyFromName === blueprint.key) {
+        return true
+      }
+
+      const keyFromSubject = normalizeSectionKey(section.subject)
+      return keyFromSubject === blueprint.key
+    })
+
+    const rawQuestions = extractSectionQuestionList(matchedSection)
+
+    const questions = rawQuestions
+      .slice(0, blueprint.question_count)
+      .map((question) =>
+        normalizeGeneratedQuestion(question, {
+          subject: blueprint.subject,
+          topic: blueprint.topic,
+          marks,
+          negative_marks: negativeMarks,
+          difficulty,
+        }),
+      )
+
+    return {
+      section_name: blueprint.section_name,
+      subject: blueprint.subject,
+      topic: blueprint.topic,
+      duration_minutes: blueprint.duration_minutes,
+      expected_question_count: blueprint.question_count,
+      generated_question_count: questions.length,
+      questions,
+    }
+  })
+
+  const totalQuestions = normalizedSections.reduce(
+    (sum, section) => sum + section.generated_question_count,
+    0,
+  )
+
+  if (totalQuestions === 0) {
+    throw createServiceError("AI service returned no questions for full length test", 502)
+  }
+
+  const totalDurationMinutes = normalizedSections.reduce(
+    (sum, section) => sum + section.duration_minutes,
+    0,
+  )
+
+  return {
+    test_type: "full_length",
+    difficulty,
+    marks_per_question: marks,
+    negative_marks: negativeMarks,
+    total_questions: totalQuestions,
+    total_duration_minutes: totalDurationMinutes,
+    sections: normalizedSections,
+  }
+}
+
+const createAiGeneratedTest = async (payload, user) => {
+  const coachingId = await resolveCoachingId(user)
+
+  const title = normalizeText(payload.title)
+  const testType = payload.test_type || (Array.isArray(payload.sections) && payload.sections.length > 1 ? "full_length" : "topic_wise")
+
+  if (!title) {
+    throw createServiceError("title is required", 400)
+  }
+
+  if (!ALLOWED_TEST_TYPES.includes(testType)) {
+    throw createServiceError("test_type must be topic_wise or full_length", 400)
+  }
+
+  if (!Array.isArray(payload.sections) || !payload.sections.length) {
+    throw createServiceError("sections must be a non-empty array", 400)
+  }
+
+  const normalizedSections = payload.sections
+    .map((section, index) => {
+      const sectionName = normalizeText(section.section_name || section.sectionName || section.title)
+      const sectionDuration = parseNonNegativeInt(
+        section.duration_minutes,
+        `sections[${index}].duration_minutes`,
+        0,
+      )
+
+      if (!sectionName) {
+        throw createServiceError(`sections[${index}].section_name is required`, 400)
+      }
+
+      if (!Array.isArray(section.questions) || !section.questions.length) {
+        return null
+      }
+
+      const approvedQuestions = section.questions
+        .filter((question) => question.approved === undefined || Boolean(question.approved))
+        .map((question) =>
+          normalizeGeneratedQuestion(question, {
+            subject: section.subject,
+            topic: section.topic || sectionName,
+            marks: payload.marks,
+            negative_marks: payload.negative_marks,
+            difficulty: payload.difficulty,
+          }),
+        )
+
+      if (!approvedQuestions.length) {
+        return null
+      }
+
+      return {
+        section_name: sectionName,
+        duration_minutes: sectionDuration,
+        questions: approvedQuestions,
+      }
+    })
+    .filter(Boolean)
+
+  if (!normalizedSections.length) {
+    throw createServiceError("at least one approved AI question is required", 400)
+  }
+
+  const totalQuestions = normalizedSections.reduce((sum, section) => sum + section.questions.length, 0)
+  const totalMarks = normalizedSections.reduce(
+    (sum, section) =>
+      sum + section.questions.reduce((sectionMarks, question) => sectionMarks + question.marks, 0),
+    0,
+  )
+
+  const resolvedDuration =
+    payload.duration_minutes !== undefined
+      ? parsePositiveInt(payload.duration_minutes, "duration_minutes")
+      : normalizedSections.reduce((sum, section) => sum + section.duration_minutes, 0)
+
+  if (!resolvedDuration) {
+    throw createServiceError("duration_minutes is required", 400)
+  }
+
+  const createdTest = await prisma.$transaction(async (tx) => {
+    const test = await tx.test.create({
+      data: {
+        coachingId,
+        title,
+        type: testType,
+        totalQuestions,
+        totalMarks,
+        durationMinutes: resolvedDuration,
+      },
+      select: {
+        id: true,
+        title: true,
+        type: true,
+        totalQuestions: true,
+        totalMarks: true,
+        durationMinutes: true,
+        createdAt: true,
+      },
+    })
+
+    const createdSections = []
+
+    for (const [sectionIndex, section] of normalizedSections.entries()) {
+      const createdSection = await tx.testSection.create({
+        data: {
+          testId: test.id,
+          sectionName: section.section_name,
+          orderIndex: sectionIndex + 1,
+          questionCount: section.questions.length,
+          durationMinutes: section.duration_minutes,
+        },
+        select: {
+          id: true,
+          sectionName: true,
+          orderIndex: true,
+          questionCount: true,
+          durationMinutes: true,
+        },
+      })
+
+      for (const [questionIndex, question] of section.questions.entries()) {
+        const createdQuestion = await tx.question.create({
+          data: {
+            coachingId,
+            subject: question.subject,
+            topic: question.topic,
+            questionText: question.question_text,
+            optionA: question.option_a,
+            optionB: question.option_b,
+            optionC: question.option_c,
+            optionD: question.option_d,
+            correctOption: question.correct_option,
+            marks: question.marks,
+            negativeMarks: question.negative_marks,
+            difficulty: question.difficulty,
+            createdBy: user.id,
+          },
+          select: {
+            id: true,
+          },
+        })
+
+        await tx.testQuestion.create({
+          data: {
+            testId: test.id,
+            sectionId: createdSection.id,
+            questionId: createdQuestion.id,
+            orderIndex: questionIndex + 1,
+          },
+        })
+      }
+
+      createdSections.push({
+        id: createdSection.id,
+        title: createdSection.sectionName,
+        order_index: createdSection.orderIndex,
+        question_count: createdSection.questionCount,
+        duration_minutes: createdSection.durationMinutes,
+      })
+    }
+
+    return {
+      id: test.id,
+      title: test.title,
+      type: test.type,
+      total_questions: test.totalQuestions,
+      total_marks: test.totalMarks,
+      duration_minutes: test.durationMinutes,
+      created_at: test.createdAt,
+      sections: createdSections,
+    }
+  })
+
+  return createdTest
+}
+
 module.exports = {
   createTest,
   getTests,
@@ -1285,4 +1941,7 @@ module.exports = {
   getSections,
   addQuestionToSection,
   removeQuestionFromSection,
+  generateAiTopicTest,
+  generateAiFullTest,
+  createAiGeneratedTest,
 }

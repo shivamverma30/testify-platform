@@ -244,6 +244,54 @@ const removeQuestionFromSection = async (req, res) => {
   }
 }
 
+const generateAiTopicTest = async (req, res) => {
+  try {
+    const result = await testService.generateAiTopicTest(req.body)
+
+    return res.status(200).json({
+      success: true,
+      data: result,
+    })
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message || "something went wrong",
+    })
+  }
+}
+
+const generateAiFullTest = async (req, res) => {
+  try {
+    const result = await testService.generateAiFullTest(req.body)
+
+    return res.status(200).json({
+      success: true,
+      data: result,
+    })
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message || "something went wrong",
+    })
+  }
+}
+
+const createAiGeneratedTest = async (req, res) => {
+  try {
+    const result = await testService.createAiGeneratedTest(req.body, req.user)
+
+    return res.status(201).json({
+      success: true,
+      data: result,
+    })
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message || "something went wrong",
+    })
+  }
+}
+
 module.exports = {
   createTest,
   getTests,
@@ -260,4 +308,7 @@ module.exports = {
   getSections,
   addQuestionToSection,
   removeQuestionFromSection,
+  generateAiTopicTest,
+  generateAiFullTest,
+  createAiGeneratedTest,
 }

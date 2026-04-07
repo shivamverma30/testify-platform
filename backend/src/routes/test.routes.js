@@ -10,6 +10,10 @@ testRouter.get("/:testId/leaderboard", authenticateUser, requireRole(["coaching_
 testRouter.use(authenticateUser, requireRole("coaching_admin"))
 sectionRouter.use(authenticateUser, requireRole("coaching_admin"))
 
+testRouter.post("/generate-ai-topic", testController.generateAiTopicTest)
+testRouter.post("/generate-ai-full", testController.generateAiFullTest)
+testRouter.post("/create-ai", testController.createAiGeneratedTest)
+
 testRouter.post("/", testController.createTest)
 testRouter.get("/", testController.getTests)
 testRouter.patch("/:testId", testController.updateTest)
