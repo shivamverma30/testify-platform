@@ -1,0 +1,3 @@
+ALTER TABLE questions
+ALTER COLUMN negative_marks TYPE DOUBLE PRECISION
+USING negative_marks::DOUBLE PRECISION;

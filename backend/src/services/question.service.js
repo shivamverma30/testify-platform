@@ -90,8 +90,8 @@ const addQuestion = async (payload, user) => {
 
   validateQuestionPayload(questionInput)
 
-  if (!Number.isInteger(questionInput.negativeMarks) || questionInput.negativeMarks < 0) {
-    throw createServiceError("negative_marks must be an integer greater than or equal to 0", 400)
+  if (!Number.isFinite(questionInput.negativeMarks) || questionInput.negativeMarks < 0) {
+    throw createServiceError("negative_marks must be a number greater than or equal to 0", 400)
   }
 
   const question = await prisma.question.create({
@@ -245,8 +245,8 @@ const updateQuestion = async (questionId, payload, user) => {
 
   if (payload.negative_marks !== undefined) {
     const negativeMarks = Number(payload.negative_marks)
-    if (!Number.isInteger(negativeMarks) || negativeMarks < 0) {
-      throw createServiceError("negative_marks must be an integer greater than or equal to 0", 400)
+    if (!Number.isFinite(negativeMarks) || negativeMarks < 0) {
+      throw createServiceError("negative_marks must be a number greater than or equal to 0", 400)
     }
     updateData.negativeMarks = negativeMarks
   }
@@ -332,8 +332,8 @@ const validateCsvRow = (row) => {
   if (!Number.isInteger(marks) || marks <= 0) {
     return { valid: false, message: "marks must be a positive integer" }
   }
-  if (!Number.isFinite(negativeMarks) || !Number.isInteger(negativeMarks) || negativeMarks < 0) {
-    return { valid: false, message: "negative_marks must be an integer >= 0" }
+  if (!Number.isFinite(negativeMarks) || negativeMarks < 0) {
+    return { valid: false, message: "negative_marks must be a non-negative number" }
   }
 
   return {

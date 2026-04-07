@@ -359,11 +359,7 @@ export default function CreateTestPage() {
     setIsGeneratingAi(true);
 
     try {
-      const response = await generateAiFullTest({
-        marks: clampPositiveInteger(aiMarksPerQuestion, 1, 20),
-        negative_marks: clampPositiveInteger(aiNegativeMarking, 0, 20),
-        difficulty: aiDifficulty,
-      });
+      const response = await generateAiFullTest();
 
       const sections: ReviewSection[] = response.sections.map((section) => ({
         section_name: section.section_name,
@@ -495,7 +491,14 @@ export default function CreateTestPage() {
       ) => void;
     },
     sectionName?: string,
+    options?: {
+      lockScoring?: boolean;
+      lockDifficulty?: boolean;
+    },
   ) => {
+    const lockScoring = Boolean(options?.lockScoring);
+    const lockDifficulty = Boolean(options?.lockDifficulty);
+
     const baseCardClasses =
       "rounded-xl border p-4 text-sm transition border-white/15 bg-white/5 text-slate-100 hover:bg-white/10";
 
@@ -561,41 +564,47 @@ export default function CreateTestPage() {
                 <option value="C">Correct Option C</option>
                 <option value="D">Correct Option D</option>
               </select>
-              <input
-                type="number"
-                min={0}
-                className="rounded-xl border border-white/20 bg-white/5 px-3 py-2.5 text-sm"
-                value={question.negative_marks}
-                onChange={(event) =>
-                  handlers.onFieldChange(
-                    question.draft_id,
-                    "negative_marks",
-                    clampPositiveInteger(Number(event.target.value), 0),
-                  )
-                }
-                placeholder="Negative Marks"
-              />
-              <input
-                type="number"
-                min={1}
-                className="rounded-xl border border-white/20 bg-white/5 px-3 py-2.5 text-sm"
-                value={question.marks}
-                onChange={(event) =>
-                  handlers.onFieldChange(question.draft_id, "marks", clampPositiveInteger(Number(event.target.value)))
-                }
-                placeholder="Marks"
-              />
-              <select
-                className="rounded-xl border border-white/20 bg-white/5 px-3 py-2.5 text-sm"
-                value={question.difficulty}
-                onChange={(event) =>
-                  handlers.onFieldChange(question.draft_id, "difficulty", event.target.value as DifficultyLevel)
-                }
-              >
-                <option value="easy">easy</option>
-                <option value="medium">medium</option>
-                <option value="hard">hard</option>
-              </select>
+              {!lockScoring ? (
+                <input
+                  type="number"
+                  min={0}
+                  className="rounded-xl border border-white/20 bg-white/5 px-3 py-2.5 text-sm"
+                  value={question.negative_marks}
+                  onChange={(event) =>
+                    handlers.onFieldChange(
+                      question.draft_id,
+                      "negative_marks",
+                      clampPositiveInteger(Number(event.target.value), 0),
+                    )
+                  }
+                  placeholder="Negative Marks"
+                />
+              ) : null}
+              {!lockScoring ? (
+                <input
+                  type="number"
+                  min={1}
+                  className="rounded-xl border border-white/20 bg-white/5 px-3 py-2.5 text-sm"
+                  value={question.marks}
+                  onChange={(event) =>
+                    handlers.onFieldChange(question.draft_id, "marks", clampPositiveInteger(Number(event.target.value)))
+                  }
+                  placeholder="Marks"
+                />
+              ) : null}
+              {!lockDifficulty ? (
+                <select
+                  className="rounded-xl border border-white/20 bg-white/5 px-3 py-2.5 text-sm"
+                  value={question.difficulty}
+                  onChange={(event) =>
+                    handlers.onFieldChange(question.draft_id, "difficulty", event.target.value as DifficultyLevel)
+                  }
+                >
+                  <option value="easy">easy</option>
+                  <option value="medium">medium</option>
+                  <option value="hard">hard</option>
+                </select>
+              ) : null}
             </div>
           </div>
         ) : (
@@ -717,39 +726,17 @@ export default function CreateTestPage() {
               </button>
             </div>
 
-            <div className="mt-4 grid gap-3 md:grid-cols-4">
+            <div className="mt-4 grid gap-3 md:grid-cols-1">
               <input
                 className="rounded-xl border border-white/20 bg-white/5 px-3 py-2.5 text-sm"
                 placeholder="AI Test Title"
                 value={aiTitle}
                 onChange={(event) => setAiTitle(event.target.value)}
               />
-              <select
-                className="rounded-xl border border-white/20 bg-white/5 px-3 py-2.5 text-sm"
-                value={aiDifficulty}
-                onChange={(event) => setAiDifficulty(event.target.value as DifficultyLevel)}
-              >
-                <option value="easy">Difficulty: easy</option>
-                <option value="medium">Difficulty: medium</option>
-                <option value="hard">Difficulty: hard</option>
-              </select>
-              <input
-                type="number"
-                min={1}
-                className="rounded-xl border border-white/20 bg-white/5 px-3 py-2.5 text-sm"
-                placeholder="Marks Per Question"
-                value={aiMarksPerQuestion}
-                onChange={(event) => setAiMarksPerQuestion(clampPositiveInteger(Number(event.target.value), 1, 20))}
-              />
-              <input
-                type="number"
-                min={0}
-                className="rounded-xl border border-white/20 bg-white/5 px-3 py-2.5 text-sm"
-                placeholder="Negative Marking"
-                value={aiNegativeMarking}
-                onChange={(event) => setAiNegativeMarking(clampPositiveInteger(Number(event.target.value), 0, 20))}
-              />
             </div>
+            <p className="mt-3 text-xs text-slate-300">
+              Full length generation follows the official NIMCET structure and marking scheme automatically.
+            </p>
           </section>
 
           {aiFlowMode === "topic" ? (
@@ -940,6 +927,10 @@ export default function CreateTestPage() {
                             updateFullQuestionField(section.section_name, draftId, field, value),
                         },
                         section.section_name,
+                        {
+                          lockScoring: true,
+                          lockDifficulty: true,
+                        },
                       ),
                     )}
                   </div>

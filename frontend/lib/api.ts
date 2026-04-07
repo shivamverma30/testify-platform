@@ -313,10 +313,20 @@ export type AiFullGenerationPayload = Partial<{
 export type AiFullGenerationResponse = {
   test_type: "full_length";
   difficulty: "easy" | "medium" | "hard";
-  marks_per_question: number;
-  negative_marks: number;
+  marks_per_question?: number;
+  negative_marks?: number;
+  total_marks: number;
   total_questions: number;
   total_duration_minutes: number;
+  section_time_allocations?: Array<{
+    section: string;
+    duration_minutes: number;
+  }>;
+  marking_scheme?: Array<{
+    section: string;
+    marks: number;
+    negative_marks: number;
+  }>;
   sections: AiGeneratedSection[];
 };
 
@@ -345,6 +355,15 @@ export type AiCreatedTestResponse = {
     order_index: number;
     question_count: number;
     duration_minutes: number;
+  }>;
+  section_time_allocations?: Array<{
+    section: string;
+    duration_minutes: number;
+  }>;
+  marking_scheme?: Array<{
+    section: string;
+    marks: number;
+    negative_marks: number;
   }>;
 };
 

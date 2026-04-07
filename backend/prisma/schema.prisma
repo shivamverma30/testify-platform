@@ -123,7 +123,7 @@ model Question {
   optionD          String          @map("option_d")
   correctOption    OptionChoice    @map("correct_option")
   marks            Int
-  negativeMarks    Int             @default(0) @map("negative_marks")
+  negativeMarks    Float           @default(0) @map("negative_marks")
   difficulty       DifficultyLevel
   createdBy        String?         @map("created_by") @db.Uuid
   createdAt        DateTime        @default(now()) @map("created_at")

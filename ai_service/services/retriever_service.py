@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import List, Optional
+from typing import Callable, List, Optional
 
 from langchain_community.vectorstores import FAISS
+from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
 from sentence_transformers import SentenceTransformer
 
@@ -52,6 +53,22 @@ class LocalEmbeddings(Embeddings):
 class RetrieverService:
     """Loads a persisted FAISS index and retrieves top-k context chunks."""
 
+    SUBJECT_ALIASES = {
+        "mathematics": "Mathematics",
+        "math": "Mathematics",
+        "quantitative aptitude": "Mathematics",
+        "quant": "Mathematics",
+        "analytical ability & logical reasoning": "Analytical Ability & Logical Reasoning",
+        "analytical ability": "Analytical Ability & Logical Reasoning",
+        "logical reasoning": "Analytical Ability & Logical Reasoning",
+        "reasoning": "Analytical Ability & Logical Reasoning",
+        "computer awareness & general english": "Computer Awareness & General English",
+        "computer awareness": "Computer Awareness & General English",
+        "computer": "Computer Awareness & General English",
+        "general english": "Computer Awareness & General English",
+        "english": "Computer Awareness & General English",
+    }
+
     def __init__(self, index_path: Path, top_k: int = 5, model_name: str = "all-MiniLM-L6-v2") -> None:
         self.index_path = Path(index_path)
         self.top_k = top_k
@@ -77,12 +94,62 @@ class RetrieverService:
         )
         logger.info("FAISS index loaded from %s", self.index_path)
 
-    def retrieve_context(self, query: str, top_k: Optional[int] = None) -> List[str]:
+    @classmethod
+    def _canonicalize_subject(cls, value: Optional[str]) -> Optional[str]:
+        if not value:
+            return None
+
+        normalized = " ".join(str(value).strip().lower().split())
+        return cls.SUBJECT_ALIASES.get(normalized)
+
+    def _build_subject_filter(self, subject: Optional[str]) -> Optional[Callable[[dict], bool]]:
+        canonical_subject = self._canonicalize_subject(subject)
+        if not canonical_subject:
+            return None
+
+        def _filter(metadata: dict) -> bool:
+            metadata_subject = metadata.get("subject")
+            metadata_canonical = self._canonicalize_subject(str(metadata_subject or ""))
+            return metadata_canonical == canonical_subject
+
+        return _filter
+
+    def retrieve_documents(
+        self,
+        query: str,
+        top_k: Optional[int] = None,
+        subject: Optional[str] = None,
+    ) -> List[Document]:
         if not self.vector_store:
             raise RuntimeError("FAISS index is not loaded")
 
         k = top_k if top_k is not None else self.top_k
-        docs = self.vector_store.similarity_search(query, k=k)
+
+        subject_filter = self._build_subject_filter(subject)
+        fetch_k = max(k * 6, 24)
+
+        try:
+            docs = self.vector_store.similarity_search(
+                query,
+                k=k,
+                fetch_k=fetch_k,
+                filter=subject_filter,
+            )
+        except TypeError:
+            docs = self.vector_store.similarity_search(query, k=fetch_k)
+            if subject_filter:
+                docs = [doc for doc in docs if subject_filter(doc.metadata)]
+            docs = docs[:k]
+
+        return docs
+
+    def retrieve_context(
+        self,
+        query: str,
+        top_k: Optional[int] = None,
+        subject: Optional[str] = None,
+    ) -> List[str]:
+        docs = self.retrieve_documents(query=query, top_k=top_k, subject=subject)
 
         contexts: List[str] = []
         for doc in docs:
@@ -101,8 +168,8 @@ def set_default_retriever(service: RetrieverService) -> None:
     _default_retriever = service
 
 
-def retrieve_context(query: str, top_k: int = 5) -> List[str]:
+def retrieve_context(query: str, top_k: int = 5, subject: Optional[str] = None) -> List[str]:
     if _default_retriever is None:
         raise RuntimeError("RetrieverService has not been initialized")
 
-    return _default_retriever.retrieve_context(query=query, top_k=top_k)
+    return _default_retriever.retrieve_context(query=query, top_k=top_k, subject=subject)

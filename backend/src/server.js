@@ -18,7 +18,7 @@ const examRoutes = require("./modules/exam/exam.routes")
 const app = express()
 
 app.use(cors())
-app.use(express.json())
+app.use(express.json({ limit: "10mb" }))
 
 app.get("/health", (req, res) => {
   res.status(200).json({ status: "ok" })

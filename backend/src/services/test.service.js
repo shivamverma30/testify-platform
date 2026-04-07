@@ -12,33 +12,82 @@ const NIMCET_SECTION_BLUEPRINT = [
     key: "mathematics",
     section_name: "Mathematics",
     subject: "Mathematics",
-    topic: "NIMCET Mathematics",
+    topic: "Mathematics",
     question_count: 50,
     duration_minutes: 70,
+    marks: 12,
+    negative_marks: 3,
   },
   {
     key: "reasoning",
-    section_name: "Reasoning",
+    section_name: "Analytical Ability & Logical Reasoning",
     subject: "Analytical Ability & Logical Reasoning",
-    topic: "NIMCET Reasoning",
+    topic: "Analytical Ability & Logical Reasoning",
     question_count: 40,
     duration_minutes: 30,
+    marks: 6,
+    negative_marks: 1.5,
   },
   {
     key: "computer",
-    section_name: "Computer",
-    subject: "Computer Awareness & General English",
-    topic: "NIMCET Computer Awareness",
+    section_name: "Computer Awareness",
+    subject: "Computer Awareness",
+    topic: "Computer Awareness",
     question_count: 20,
-    duration_minutes: 20,
+    duration_minutes: 10,
+    marks: 6,
+    negative_marks: 1.5,
   },
   {
     key: "english",
-    section_name: "English",
-    subject: "Computer Awareness & General English",
-    topic: "NIMCET English",
+    section_name: "General English",
+    subject: "General English",
+    topic: "General English",
     question_count: 10,
+    duration_minutes: 10,
+    marks: 4,
+    negative_marks: 1,
+  },
+]
+
+const NIMCET_TOTAL_MARKS = 1000
+const NIMCET_TOTAL_DURATION_MINUTES = 120
+
+const NIMCET_SECTION_TIME_ALLOCATIONS = [
+  {
+    section: "Mathematics",
+    duration_minutes: 70,
+  },
+  {
+    section: "Analytical Ability & Logical Reasoning",
+    duration_minutes: 30,
+  },
+  {
+    section: "Computer + General English",
     duration_minutes: 20,
+  },
+]
+
+const NIMCET_MARKING_SCHEME = [
+  {
+    section: "Mathematics",
+    marks: 12,
+    negative_marks: 3,
+  },
+  {
+    section: "Analytical Ability & Logical Reasoning",
+    marks: 6,
+    negative_marks: 1.5,
+  },
+  {
+    section: "Computer Awareness",
+    marks: 6,
+    negative_marks: 1.5,
+  },
+  {
+    section: "General English",
+    marks: 4,
+    negative_marks: 1,
   },
 ]
 
@@ -142,6 +191,20 @@ const parseNonNegativeInt = (value, fieldName, defaultValue = 0) => {
   }
 
   return parsed
+}
+
+const parseNonNegativeNumber = (value, fieldName, defaultValue = 0) => {
+  if (value === undefined || value === null || value === "") {
+    return defaultValue
+  }
+
+  const parsed = Number(value)
+
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    throw createServiceError(`${fieldName} must be a non-negative number`, 400)
+  }
+
+  return Number(parsed.toFixed(2))
 }
 
 const normalizeText = (value) => {
@@ -329,7 +392,12 @@ const normalizeSectionKey = (value) => {
     return "mathematics"
   }
 
-  if (normalized.includes("reason") || normalized.includes("logical") || normalized.includes("analytical")) {
+  if (
+    normalized.includes("reason") ||
+    normalized.includes("logical") ||
+    normalized.includes("analytical") ||
+    normalized.includes("ability")
+  ) {
     return "reasoning"
   }
 
@@ -436,7 +504,7 @@ const normalizeGeneratedQuestion = (rawQuestion, defaults = {}) => {
   )
 
   const marks = parsePositiveInt(rawQuestion.marks ?? defaults.marks, "marks")
-  const negativeMarks = parseNonNegativeInt(
+  const negativeMarks = parseNonNegativeNumber(
     rawQuestion.negative_marks ?? rawQuestion.negativeMarks ?? defaults.negative_marks,
     "negative_marks",
     0,
@@ -824,11 +892,11 @@ const updateTestSchedule = async (testId, payload, user) => {
   const coachingId = await resolveCoachingId(user)
 
   const scheduledStart = parseScheduleDate(
-    payload.scheduled_start || payload.scheduledStart,
+    payload.scheduled_start || payload.scheduledStart || payload.start_time || payload.startTime,
     "scheduled_start",
   )
   const scheduledEnd = parseScheduleDate(
-    payload.scheduled_end || payload.scheduledEnd,
+    payload.scheduled_end || payload.scheduledEnd || payload.end_time || payload.endTime,
     "scheduled_end",
   )
 
@@ -932,6 +1000,8 @@ const updateTestSchedule = async (testId, payload, user) => {
     is_active: updatedTest.isActive,
     scheduled_start: updatedTest.scheduledStart,
     scheduled_end: updatedTest.scheduledEnd,
+    start_time: updatedTest.scheduledStart,
+    end_time: updatedTest.scheduledEnd,
     updated_at: updatedTest.updatedAt,
   }
 }
@@ -1616,7 +1686,7 @@ const generateAiTopicTest = async (payload) => {
   const topic = normalizeText(payload.topic)
   const questionCount = parsePositiveInt(payload.question_count, "question_count")
   const marks = parsePositiveInt(payload.marks, "marks")
-  const negativeMarks = parseNonNegativeInt(payload.negative_marks, "negative_marks", 0)
+  const negativeMarks = parseNonNegativeNumber(payload.negative_marks, "negative_marks", 0)
   const difficulty = normalizeDifficulty(payload.difficulty, "medium")
   const durationMinutes = parsePositiveInt(payload.duration, "duration")
 
@@ -1672,14 +1742,10 @@ const generateAiTopicTest = async (payload) => {
 }
 
 const generateAiFullTest = async (payload) => {
-  const marks = parsePositiveInt(payload?.marks ?? 4, "marks")
-  const negativeMarks = parseNonNegativeInt(payload?.negative_marks ?? 1, "negative_marks", 0)
   const difficulty = normalizeDifficulty(payload?.difficulty, "medium")
 
   const aiPayload = {
     difficulty,
-    marks,
-    negative_marks: negativeMarks,
   }
 
   const aiResponse = await callAiService("/generate-full-test", aiPayload)
@@ -1707,22 +1773,38 @@ const generateAiFullTest = async (payload) => {
         normalizeGeneratedQuestion(question, {
           subject: blueprint.subject,
           topic: blueprint.topic,
-          marks,
-          negative_marks: negativeMarks,
+          marks: blueprint.marks,
+          negative_marks: blueprint.negative_marks,
           difficulty,
         }),
       )
+
+    const strictQuestions = questions.map((question) => ({
+      ...question,
+      marks: blueprint.marks,
+      negative_marks: blueprint.negative_marks,
+    }))
 
     return {
       section_name: blueprint.section_name,
       subject: blueprint.subject,
       topic: blueprint.topic,
       duration_minutes: blueprint.duration_minutes,
+      marks_per_question: blueprint.marks,
+      negative_marks: blueprint.negative_marks,
       expected_question_count: blueprint.question_count,
-      generated_question_count: questions.length,
-      questions,
+      generated_question_count: strictQuestions.length,
+      questions: strictQuestions,
     }
   })
+
+  const hasMissingQuestions = normalizedSections.some(
+    (section) => section.generated_question_count !== section.expected_question_count,
+  )
+
+  if (hasMissingQuestions) {
+    throw createServiceError("AI service returned incomplete full length test sections", 502)
+  }
 
   const totalQuestions = normalizedSections.reduce(
     (sum, section) => sum + section.generated_question_count,
@@ -1733,18 +1815,16 @@ const generateAiFullTest = async (payload) => {
     throw createServiceError("AI service returned no questions for full length test", 502)
   }
 
-  const totalDurationMinutes = normalizedSections.reduce(
-    (sum, section) => sum + section.duration_minutes,
-    0,
-  )
-
   return {
     test_type: "full_length",
     difficulty,
-    marks_per_question: marks,
-    negative_marks: negativeMarks,
+    marks_per_question: 0,
+    negative_marks: 0,
+    total_marks: NIMCET_TOTAL_MARKS,
     total_questions: totalQuestions,
-    total_duration_minutes: totalDurationMinutes,
+    total_duration_minutes: NIMCET_TOTAL_DURATION_MINUTES,
+    section_time_allocations: NIMCET_SECTION_TIME_ALLOCATIONS,
+    marking_scheme: NIMCET_MARKING_SCHEME,
     sections: normalizedSections,
   }
 }
@@ -1767,65 +1847,139 @@ const createAiGeneratedTest = async (payload, user) => {
     throw createServiceError("sections must be a non-empty array", 400)
   }
 
-  const normalizedSections = payload.sections
-    .map((section, index) => {
-      const sectionName = normalizeText(section.section_name || section.sectionName || section.title)
-      const sectionDuration = parseNonNegativeInt(
-        section.duration_minutes,
-        `sections[${index}].duration_minutes`,
-        0,
-      )
+  let normalizedSections = []
+  let totalQuestions = 0
+  let totalMarks = 0
+  let resolvedDuration = 0
 
-      if (!sectionName) {
-        throw createServiceError(`sections[${index}].section_name is required`, 400)
+  if (testType === "full_length") {
+    const sectionByKey = new Map()
+
+    payload.sections.forEach((section, index) => {
+      const sectionName = normalizeText(section.section_name || section.sectionName || section.title)
+      const sectionKey = normalizeSectionKey(sectionName || section.subject)
+
+      if (!sectionKey) {
+        throw createServiceError(`sections[${index}] has an invalid section_name`, 400)
+      }
+
+      if (sectionByKey.has(sectionKey)) {
+        throw createServiceError(`duplicate section provided for ${sectionName}`, 400)
+      }
+
+      sectionByKey.set(sectionKey, section)
+    })
+
+    normalizedSections = NIMCET_SECTION_BLUEPRINT.map((blueprint) => {
+      const section = sectionByKey.get(blueprint.key)
+
+      if (!section) {
+        throw createServiceError(`missing required full length section: ${blueprint.section_name}`, 400)
       }
 
       if (!Array.isArray(section.questions) || !section.questions.length) {
-        return null
+        throw createServiceError(
+          `section ${blueprint.section_name} must include approved questions`,
+          400,
+        )
       }
 
       const approvedQuestions = section.questions
         .filter((question) => question.approved === undefined || Boolean(question.approved))
         .map((question) =>
           normalizeGeneratedQuestion(question, {
-            subject: section.subject,
-            topic: section.topic || sectionName,
-            marks: payload.marks,
-            negative_marks: payload.negative_marks,
+            subject: blueprint.subject,
+            topic: blueprint.topic,
+            marks: blueprint.marks,
+            negative_marks: blueprint.negative_marks,
             difficulty: payload.difficulty,
           }),
         )
+        .map((question) => ({
+          ...question,
+          subject: blueprint.subject,
+          marks: blueprint.marks,
+          negative_marks: blueprint.negative_marks,
+        }))
 
-      if (!approvedQuestions.length) {
-        return null
+      if (approvedQuestions.length !== blueprint.question_count) {
+        throw createServiceError(
+          `section ${blueprint.section_name} must contain exactly ${blueprint.question_count} approved questions`,
+          400,
+        )
       }
 
       return {
-        section_name: sectionName,
-        duration_minutes: sectionDuration,
+        section_name: blueprint.section_name,
+        duration_minutes: blueprint.duration_minutes,
         questions: approvedQuestions,
       }
     })
-    .filter(Boolean)
 
-  if (!normalizedSections.length) {
-    throw createServiceError("at least one approved AI question is required", 400)
-  }
+    totalQuestions = normalizedSections.reduce((sum, section) => sum + section.questions.length, 0)
+    totalMarks = NIMCET_TOTAL_MARKS
+    resolvedDuration = NIMCET_TOTAL_DURATION_MINUTES
+  } else {
+    normalizedSections = payload.sections
+      .map((section, index) => {
+        const sectionName = normalizeText(section.section_name || section.sectionName || section.title)
+        const sectionDuration = parseNonNegativeInt(
+          section.duration_minutes,
+          `sections[${index}].duration_minutes`,
+          0,
+        )
 
-  const totalQuestions = normalizedSections.reduce((sum, section) => sum + section.questions.length, 0)
-  const totalMarks = normalizedSections.reduce(
-    (sum, section) =>
-      sum + section.questions.reduce((sectionMarks, question) => sectionMarks + question.marks, 0),
-    0,
-  )
+        if (!sectionName) {
+          throw createServiceError(`sections[${index}].section_name is required`, 400)
+        }
 
-  const resolvedDuration =
-    payload.duration_minutes !== undefined
-      ? parsePositiveInt(payload.duration_minutes, "duration_minutes")
-      : normalizedSections.reduce((sum, section) => sum + section.duration_minutes, 0)
+        if (!Array.isArray(section.questions) || !section.questions.length) {
+          return null
+        }
 
-  if (!resolvedDuration) {
-    throw createServiceError("duration_minutes is required", 400)
+        const approvedQuestions = section.questions
+          .filter((question) => question.approved === undefined || Boolean(question.approved))
+          .map((question) =>
+            normalizeGeneratedQuestion(question, {
+              subject: section.subject,
+              topic: section.topic || sectionName,
+              marks: payload.marks,
+              negative_marks: payload.negative_marks,
+              difficulty: payload.difficulty,
+            }),
+          )
+
+        if (!approvedQuestions.length) {
+          return null
+        }
+
+        return {
+          section_name: sectionName,
+          duration_minutes: sectionDuration,
+          questions: approvedQuestions,
+        }
+      })
+      .filter(Boolean)
+
+    if (!normalizedSections.length) {
+      throw createServiceError("at least one approved AI question is required", 400)
+    }
+
+    totalQuestions = normalizedSections.reduce((sum, section) => sum + section.questions.length, 0)
+    totalMarks = normalizedSections.reduce(
+      (sum, section) =>
+        sum + section.questions.reduce((sectionMarks, question) => sectionMarks + question.marks, 0),
+      0,
+    )
+
+    resolvedDuration =
+      payload.duration_minutes !== undefined
+        ? parsePositiveInt(payload.duration_minutes, "duration_minutes")
+        : normalizedSections.reduce((sum, section) => sum + section.duration_minutes, 0)
+
+    if (!resolvedDuration) {
+      throw createServiceError("duration_minutes is required", 400)
+    }
   }
 
   const createdTest = await prisma.$transaction(async (tx) => {
@@ -1921,6 +2075,14 @@ const createAiGeneratedTest = async (payload, user) => {
       sections: createdSections,
     }
   })
+
+  if (testType === "full_length") {
+    return {
+      ...createdTest,
+      section_time_allocations: NIMCET_SECTION_TIME_ALLOCATIONS,
+      marking_scheme: NIMCET_MARKING_SCHEME,
+    }
+  }
 
   return createdTest
 }
