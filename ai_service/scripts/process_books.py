@@ -5,49 +5,54 @@ Run:
 """
 
 from __future__ import annotations
-from dotenv import load_dotenv
-load_dotenv()
-import os
+
 import shutil
 from pathlib import Path
 from typing import Iterable, List
 
-import google.generativeai as genai
 import tiktoken
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
+from sentence_transformers import SentenceTransformer
 
 
-class GeminiEmbeddings(Embeddings):
-    """LangChain-compatible Gemini embedding adapter."""
+class LocalEmbeddings(Embeddings):
+    """LangChain-compatible local embedding adapter using sentence-transformers."""
 
-    def __init__(self, api_key: str, model: str = "models/embedding-001") -> None:
-        self.model = model
-        genai.configure(api_key=api_key)
+    def __init__(self, model_name: str = "all-MiniLM-L6-v2") -> None:
+        self.model = SentenceTransformer(model_name)
 
-    def _embed_text(self, text: str, task_type: str) -> List[float]:
+    @staticmethod
+    def _normalize_text(text: str) -> str:
         normalized = (text or "").replace("\x00", " ").strip()
         if not normalized:
             normalized = "N/A"
-
-        response = genai.embed_content(
-            model=self.model,
-            content=normalized,
-            task_type=task_type,
-        )
-        embedding = response.get("embedding")
-        if not embedding:
-            raise ValueError("Gemini returned an empty embedding vector.")
-        return embedding
+        return normalized
 
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
-        return [self._embed_text(text, task_type="retrieval_document") for text in texts]
+        if not texts:
+            return []
+
+        normalized_texts = [self._normalize_text(text) for text in texts]
+        vectors = self.model.encode(
+            normalized_texts,
+            batch_size=32,
+            show_progress_bar=False,
+            convert_to_numpy=True,
+        )
+        return vectors.tolist()
 
     def embed_query(self, text: str) -> List[float]:
-        return self._embed_text(text, task_type="retrieval_query")
+        normalized_text = self._normalize_text(text)
+        vector = self.model.encode(
+            normalized_text,
+            show_progress_bar=False,
+            convert_to_numpy=True,
+        )
+        return vector.tolist()
 
 
 def discover_pdf_files(materials_dir: Path) -> List[Path]:
@@ -102,10 +107,6 @@ def build_knowledge_base() -> None:
     if not materials_dir.exists():
         raise FileNotFoundError(f"Materials directory not found: {materials_dir}")
 
-    gemini_api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-    if not gemini_api_key:
-        raise EnvironmentError("Set GEMINI_API_KEY or GOOGLE_API_KEY before running this script.")
-
     pdf_files = discover_pdf_files(materials_dir)
     if not pdf_files:
         raise FileNotFoundError(f"No PDF files found in: {materials_dir}")
@@ -119,7 +120,7 @@ def build_knowledge_base() -> None:
     if not chunks:
         raise ValueError("Document chunking produced zero chunks.")
 
-    embeddings = GeminiEmbeddings(api_key=gemini_api_key)
+    embeddings = LocalEmbeddings()
     vector_store = FAISS.from_documents(chunks, embeddings)
 
     if index_dir.exists():
