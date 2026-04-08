@@ -144,6 +144,8 @@ const sendTestScheduledEmail = async ({
   toEmail,
   studentName,
   testTitle,
+  testSubject,
+  durationMinutes,
   scheduledStart,
   scheduledEnd,
 }) => {
@@ -152,6 +154,8 @@ const sendTestScheduledEmail = async ({
     `Hello ${studentName},`,
     "",
     `A test has been scheduled by your coaching institute: ${testTitle}`,
+    `Subject: ${testSubject || "General"}`,
+    `Duration: ${durationMinutes} minutes`,
     `Start time: ${new Date(scheduledStart).toLocaleString("en-IN")}`,
     `End time: ${new Date(scheduledEnd).toLocaleString("en-IN")}`,
     "",

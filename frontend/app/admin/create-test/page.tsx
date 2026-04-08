@@ -38,7 +38,6 @@ const SUBJECT_OPTIONS = [
   "Mathematics",
   "Analytical Ability & Logical Reasoning",
   "Computer Awareness & General English",
-  "English",
 ];
 
 const buildDraftId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
@@ -90,6 +89,9 @@ const toAiPayloadQuestion = (question: ReviewQuestion): AiGeneratedQuestion => (
   marks: question.marks,
   negative_marks: question.negative_marks,
   difficulty: question.difficulty,
+  concept: question.concept,
+  source_file: question.source_file,
+  source_page: question.source_page,
   approved: question.approved,
 });
 
@@ -113,8 +115,6 @@ export default function CreateTestPage() {
   const [aiSubject, setAiSubject] = useState("Mathematics");
   const [aiTopic, setAiTopic] = useState("");
   const [aiQuestionCount, setAiQuestionCount] = useState(20);
-  const [aiMarksPerQuestion, setAiMarksPerQuestion] = useState(4);
-  const [aiNegativeMarking, setAiNegativeMarking] = useState(1);
   const [aiDifficulty, setAiDifficulty] = useState<DifficultyLevel>("medium");
   const [aiDuration, setAiDuration] = useState(60);
 
@@ -326,10 +326,7 @@ export default function CreateTestPage() {
         subject: aiSubject,
         topic: aiTopic.trim(),
         question_count: clampPositiveInteger(aiQuestionCount, 1, 70),
-        marks: clampPositiveInteger(aiMarksPerQuestion, 1, 20),
-        negative_marks: clampPositiveInteger(aiNegativeMarking, 0, 20),
         difficulty: aiDifficulty,
-        duration: clampPositiveInteger(aiDuration, 1, 500),
       });
 
       const reviewQuestions = response.questions.map(toReviewQuestion);
@@ -337,6 +334,7 @@ export default function CreateTestPage() {
       setAiFlowMode("topic");
       setTopicReviewQuestions(reviewQuestions);
       setFullReviewSections([]);
+      setAiDuration(response.duration_minutes);
 
       if (!aiTitle.trim()) {
         setAiTitle(`${response.subject} - ${response.topic} AI Test`);
@@ -776,24 +774,6 @@ export default function CreateTestPage() {
                   onChange={(event) => setAiQuestionCount(clampPositiveInteger(Number(event.target.value), 1, 70))}
                   required
                 />
-                <input
-                  type="number"
-                  min={1}
-                  className="rounded-xl border border-white/20 bg-white/5 px-3 py-2.5 text-sm"
-                  placeholder="Marks Per Question"
-                  value={aiMarksPerQuestion}
-                  onChange={(event) => setAiMarksPerQuestion(clampPositiveInteger(Number(event.target.value), 1, 20))}
-                  required
-                />
-                <input
-                  type="number"
-                  min={0}
-                  className="rounded-xl border border-white/20 bg-white/5 px-3 py-2.5 text-sm"
-                  placeholder="Negative Marking"
-                  value={aiNegativeMarking}
-                  onChange={(event) => setAiNegativeMarking(clampPositiveInteger(Number(event.target.value), 0, 20))}
-                  required
-                />
                 <select
                   className="rounded-xl border border-white/20 bg-white/5 px-3 py-2.5 text-sm"
                   value={aiDifficulty}
@@ -803,16 +783,11 @@ export default function CreateTestPage() {
                   <option value="medium">medium</option>
                   <option value="hard">hard</option>
                 </select>
-                <input
-                  type="number"
-                  min={1}
-                  className="rounded-xl border border-white/20 bg-white/5 px-3 py-2.5 text-sm"
-                  placeholder="Test Duration (minutes)"
-                  value={aiDuration}
-                  onChange={(event) => setAiDuration(clampPositiveInteger(Number(event.target.value), 1, 500))}
-                  required
-                />
               </div>
+
+              <p className="mt-3 text-xs text-slate-300">
+                Marks, negative marks and duration are assigned automatically using subject-wise NIMCET rules.
+              </p>
 
               <button
                 type="submit"

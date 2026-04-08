@@ -60,7 +60,7 @@ export default function AllTestsPage() {
 
     try {
       const updated = await updateTest(editingId, { title: editTitle });
-      setTests((current) => current.map((item) => (item.id === editingId ? updated : item)));
+      setTests((current) => current.map((item) => (item.id === editingId ? { ...item, ...updated } : item)));
       setEditingId(null);
       setEditTitle("");
     } catch (requestError) {
@@ -79,7 +79,7 @@ export default function AllTestsPage() {
         scheduled_start: new Date(scheduledStart).toISOString(),
         scheduled_end: new Date(scheduledEnd).toISOString(),
       });
-      setTests((current) => current.map((item) => (item.id === scheduleId ? updated : item)));
+      setTests((current) => current.map((item) => (item.id === scheduleId ? { ...item, ...updated } : item)));
       setScheduleId(null);
       setScheduledStart("");
       setScheduledEnd("");
@@ -110,9 +110,14 @@ export default function AllTestsPage() {
             <article key={test.id} className="glass-card rounded-2xl p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <p className="font-display text-lg text-white">{test.title}</p>
+                  <Link href={`/admin/all-tests/${test.id}`} className="font-display text-lg text-white hover:text-cyan-100">
+                    {test.title}
+                  </Link>
                   <p className="text-sm text-slate-300">
                     {test.type.replace("_", " ")} · {test.total_questions} questions · {test.duration_minutes} mins
+                  </p>
+                  <p className="text-xs text-slate-300 mt-1">
+                    {test.subject || "General"} · {test.topic || "General"} · {test.difficulty || "mixed"}
                   </p>
                   <p className="text-xs text-slate-300 mt-1">
                     Schedule: {test.scheduled_start && test.scheduled_end
@@ -121,6 +126,12 @@ export default function AllTestsPage() {
                   </p>
                 </div>
                 <div className="flex gap-2">
+                  <Link
+                    href={`/admin/all-tests/${test.id}`}
+                    className="rounded-lg border border-emerald-300/40 bg-emerald-500/15 px-3 py-1.5 text-xs text-emerald-100 hover:bg-emerald-500/25"
+                  >
+                    Open
+                  </Link>
                   <Link
                     href={`/admin/test-analytics/${test.id}`}
                     className="rounded-lg border border-cyan-300/40 bg-cyan-500/15 px-3 py-1.5 text-xs text-cyan-100 hover:bg-cyan-500/25"

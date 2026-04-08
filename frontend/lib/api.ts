@@ -268,6 +268,9 @@ export type AiGeneratedQuestion = {
   marks: number;
   negative_marks: number;
   difficulty: "easy" | "medium" | "hard";
+  concept?: string;
+  source_file?: string | null;
+  source_page?: number | null;
   approved?: boolean;
 };
 
@@ -285,10 +288,7 @@ export type AiTopicGenerationPayload = {
   subject: string;
   topic: string;
   question_count: number;
-  marks: number;
-  negative_marks: number;
   difficulty: "easy" | "medium" | "hard";
-  duration: number;
 };
 
 export type AiTopicGenerationResponse = {
@@ -376,10 +376,40 @@ export type AdminTest = {
   total_questions: number;
   total_marks: number;
   duration_minutes: number;
+  subject?: string;
+  topic?: string;
+  difficulty?: string;
   scheduled_start: string | null;
   scheduled_end: string | null;
   created_at: string;
   updated_at: string;
+};
+
+export type AdminTestDetail = AdminTest & {
+  is_active: boolean;
+  sections: Array<{
+    id: string;
+    title: string;
+    order_index: number;
+    question_count: number;
+    duration_minutes: number;
+    questions: Array<{
+      test_question_id: string;
+      order_index: number;
+      id: string;
+      subject: string;
+      topic: string;
+      question_text: string;
+      option_a: string;
+      option_b: string;
+      option_c: string;
+      option_d: string;
+      correct_option: "A" | "B" | "C" | "D";
+      marks: number;
+      negative_marks: number;
+      difficulty: "easy" | "medium" | "hard";
+    }>;
+  }>;
 };
 
 export type AdminTestSeries = {
@@ -1159,6 +1189,10 @@ export const getAdminTests = () => {
   return request<AdminTest[]>("/api/tests");
 };
 
+export const getAdminTestDetail = (testId: string) => {
+  return request<AdminTestDetail>(`/api/tests/${testId}/detail`);
+};
+
 export const getTestLeaderboard = (testId: string, query?: AnalyticsListQuery) => {
   return request<TestLeaderboardResponse>(`/api/tests/${testId}/leaderboard${toListQueryString(query)}`);
 };
@@ -1216,6 +1250,15 @@ export const addQuestionToSection = (
     method: "POST",
     body: payload,
   });
+};
+
+export const removeQuestionFromSection = (sectionId: string, questionId: string) => {
+  return request<{ section_id: string; question_id: string; removed: boolean }>(
+    `/api/sections/${sectionId}/questions/${questionId}`,
+    {
+      method: "DELETE",
+    },
+  );
 };
 
 export const getTestSeries = () => {

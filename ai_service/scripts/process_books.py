@@ -59,11 +59,17 @@ def discover_pdf_files(materials_dir: Path) -> List[Path]:
     return sorted(path for path in materials_dir.rglob("*.pdf") if path.is_file())
 
 
+def infer_topic_hint_from_filename(pdf_path: Path) -> str:
+    stem = pdf_path.stem.replace("_", " ").replace("-", " ").strip()
+    return stem or "General Concepts"
+
+
 def load_documents(pdf_files: Iterable[Path], materials_dir: Path) -> List[Document]:
     documents: List[Document] = []
 
     for pdf_path in pdf_files:
         subject = pdf_path.parent.relative_to(materials_dir).parts[0]
+        topic_hint = infer_topic_hint_from_filename(pdf_path)
         loader = PyPDFLoader(str(pdf_path))
         loaded_pages = loader.load()
 
@@ -73,11 +79,21 @@ def load_documents(pdf_files: Iterable[Path], materials_dir: Path) -> List[Docum
                 continue
 
             metadata = dict(page.metadata)
+            raw_page = metadata.get("page")
+            page_number = None
+
+            if isinstance(raw_page, int):
+                page_number = raw_page + 1
+            elif isinstance(raw_page, str) and raw_page.isdigit():
+                page_number = int(raw_page) + 1
+
             metadata.update(
                 {
                     "subject": subject,
+                    "topic_hint": topic_hint,
                     "source_file": pdf_path.name,
                     "source_path": str(pdf_path),
+                    "page_number": page_number,
                 }
             )
             documents.append(Document(page_content=content, metadata=metadata))

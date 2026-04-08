@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import logging
 import math
 import random
 import re
-import secrets
-import time
 from collections import Counter
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -29,8 +28,8 @@ FALLBACK_GEMINI_MODELS = (
 )
 
 GENERATION_CONFIG = {
-    "temperature": 0.7,
-    "top_p": 0.9,
+    "temperature": 0,
+    "top_p": 1,
     "candidate_count": 1,
 }
 
@@ -140,8 +139,9 @@ class QuestionGeneratorService:
         )
 
     @staticmethod
-    def _build_rng() -> Tuple[random.Random, int]:
-        seed = int(time.time_ns()) ^ secrets.randbits(32)
+    def _build_rng(seed_material: str) -> Tuple[random.Random, int]:
+        digest = hashlib.sha256(seed_material.encode("utf-8")).hexdigest()
+        seed = int(digest[:16], 16)
         return random.Random(seed), seed
 
     def _generate_with_gemini(self, prompt: str, generation_config: Optional[Dict[str, Any]] = None):
@@ -514,7 +514,7 @@ class QuestionGeneratorService:
         return selected
 
     @staticmethod
-    def _build_context_from_concepts(concepts: List[Dict[str, Any]], rng: random.Random) -> List[str]:
+    def _build_context_from_concepts(concepts: List[Dict[str, Any]]) -> List[str]:
         context_chunks: List[str] = []
 
         for concept in concepts:
@@ -530,8 +530,8 @@ class QuestionGeneratorService:
                 f"[Source: {source_file}, Page: {source_page_text}]\n{snippet[:1200]}",
             )
 
-        rng.shuffle(context_chunks)
-        return context_chunks[:6]
+        context_chunks = sorted(context_chunks, key=len, reverse=True)
+        return context_chunks[:5]
 
     def _build_prompt(
         self,
@@ -600,7 +600,7 @@ Knowledge Context:
         rng: random.Random,
         random_seed: int,
     ) -> List[Dict[str, Any]]:
-        context_chunks = self._build_context_from_concepts(concepts, rng)
+        context_chunks = self._build_context_from_concepts(concepts)
         if not context_chunks:
             return []
 
@@ -812,6 +812,14 @@ Knowledge Context:
 
         return updated_questions
 
+    @staticmethod
+    def _build_retrieval_query(subject: str, topic: str) -> str:
+        subject_text = str(subject or "").strip()
+        topic_text = str(topic or "").strip()
+
+        # Keep query deterministic and explicitly topic-focused for semantic retrieval.
+        return f"{subject_text} {topic_text} concepts formulas fundamentals exam questions".strip()
+
     def generate_mcq_bundle(
         self,
         subject: str,
@@ -825,12 +833,13 @@ Knowledge Context:
     ) -> Dict[str, Any]:
         self._ensure_model()
 
-        query = f"{subject} - {topic}"
-        retrieval_k = max(self.retrieval_top_k * 8, 36)
+        query = self._build_retrieval_query(subject, topic)
+        retrieval_k = max(self.retrieval_top_k, 1)
         documents = self.retriever_service.retrieve_documents(
             query=query,
             top_k=retrieval_k,
             subject=subject,
+            topic=topic,
         )
 
         logger.info(
@@ -846,7 +855,17 @@ Knowledge Context:
                 "Please ensure material PDFs are uploaded for this subject.",
             )
 
-        rng, seed = self._build_rng()
+        rng, seed = self._build_rng(
+            "|".join(
+                [
+                    subject.strip().lower(),
+                    topic.strip().lower(),
+                    str(question_count),
+                    difficulty.strip().lower(),
+                    distribution_mode.strip().lower(),
+                ]
+            )
+        )
         rng.shuffle(documents)
 
         concept_pool = self._extract_concepts_from_documents(documents, topic, rng)

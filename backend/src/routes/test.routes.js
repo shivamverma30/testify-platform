@@ -16,6 +16,7 @@ testRouter.post("/create-ai", testController.createAiGeneratedTest)
 
 testRouter.post("/", testController.createTest)
 testRouter.get("/", testController.getTests)
+testRouter.get("/:testId/detail", testController.getTestById)
 testRouter.patch("/:testId", testController.updateTest)
 testRouter.delete("/:testId", testController.deleteTest)
 testRouter.patch("/:testId/schedule", testController.updateTestSchedule)

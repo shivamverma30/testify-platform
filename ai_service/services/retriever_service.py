@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import logging
+import math
 from pathlib import Path
-from typing import Callable, List, Optional
+import re
+from typing import Dict, Iterable, List, Optional
 
 from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
@@ -74,6 +76,8 @@ class RetrieverService:
         self.top_k = top_k
         self.embeddings = LocalEmbeddings(model_name=model_name)
         self.vector_store: Optional[FAISS] = None
+        self._doc_by_index: Dict[int, Document] = {}
+        self._subject_index_cache: Dict[str, List[int]] = {}
 
     def load_index(self) -> None:
         index_faiss = self.index_path / "index.faiss"
@@ -92,7 +96,44 @@ class RetrieverService:
             self.embeddings,
             allow_dangerous_deserialization=True,
         )
+        self._warm_metadata_cache()
         logger.info("FAISS index loaded from %s", self.index_path)
+
+    def _iter_index_documents(self) -> Iterable[tuple[int, Document]]:
+        if self.vector_store is None:
+            return
+
+        docstore = getattr(self.vector_store, "docstore", None)
+        index_to_docstore_id = getattr(self.vector_store, "index_to_docstore_id", None)
+
+        if docstore is None or not index_to_docstore_id:
+            return
+
+        for raw_index, docstore_id in index_to_docstore_id.items():
+            document = None
+
+            if hasattr(docstore, "search"):
+                document = docstore.search(docstore_id)
+            elif hasattr(docstore, "_dict"):
+                document = docstore._dict.get(docstore_id)  # pragma: no cover
+
+            if isinstance(document, Document):
+                yield int(raw_index), document
+
+    def _warm_metadata_cache(self) -> None:
+        self._doc_by_index = {}
+        self._subject_index_cache = {}
+
+        for index_id, document in self._iter_index_documents() or []:
+            self._doc_by_index[index_id] = document
+
+            metadata = document.metadata or {}
+            canonical_subject = self._canonicalize_subject(str(metadata.get("subject") or ""))
+            if not canonical_subject:
+                continue
+
+            bucket = self._subject_index_cache.setdefault(canonical_subject, [])
+            bucket.append(index_id)
 
     @classmethod
     def _canonicalize_subject(cls, value: Optional[str]) -> Optional[str]:
@@ -102,73 +143,134 @@ class RetrieverService:
         normalized = " ".join(str(value).strip().lower().split())
         return cls.SUBJECT_ALIASES.get(normalized)
 
-    def _build_subject_filter(self, subject: Optional[str]) -> Optional[Callable[[dict], bool]]:
+    @staticmethod
+    def _extract_topic_terms(topic: Optional[str], query: str) -> List[str]:
+        candidate = f"{topic or ''} {query or ''}".strip().lower()
+        terms = re.findall(r"[a-zA-Z][a-zA-Z0-9]+", candidate)
+        deduped: List[str] = []
+
+        for term in terms:
+            if len(term) < 3:
+                continue
+            if term not in deduped:
+                deduped.append(term)
+
+        return deduped[:8]
+
+    @staticmethod
+    def _cosine_similarity(vector_a: List[float], vector_b: List[float]) -> float:
+        if not vector_a or not vector_b:
+            return 0.0
+
+        dot_value = sum(a * b for a, b in zip(vector_a, vector_b))
+        norm_a = math.sqrt(sum(a * a for a in vector_a))
+        norm_b = math.sqrt(sum(b * b for b in vector_b))
+
+        if norm_a == 0 or norm_b == 0:
+            return 0.0
+
+        return dot_value / (norm_a * norm_b)
+
+    @staticmethod
+    def _topic_bonus(document: Document, topic_terms: List[str]) -> float:
+        if not topic_terms:
+            return 0.0
+
+        metadata = document.metadata or {}
+        topic_hint = str(metadata.get("topic_hint") or "").lower()
+        page_text = str(document.page_content or "")[:700].lower()
+
+        bonus = 0.0
+        for term in topic_terms:
+            if topic_hint and term in topic_hint:
+                bonus += 0.08
+            elif term in page_text:
+                bonus += 0.03
+
+        return min(bonus, 0.3)
+
+    def _rank_subject_documents(
+        self,
+        *,
+        query: str,
+        subject: str,
+        topic: Optional[str],
+        top_k: int,
+    ) -> List[Document]:
+        if self.vector_store is None:
+            return []
+
         canonical_subject = self._canonicalize_subject(subject)
         if not canonical_subject:
-            return None
+            return []
 
-        def _filter(metadata: dict) -> bool:
-            metadata_subject = metadata.get("subject")
-            metadata_canonical = self._canonicalize_subject(str(metadata_subject or ""))
-            return metadata_canonical == canonical_subject
+        candidate_indices = self._subject_index_cache.get(canonical_subject, [])
+        if not candidate_indices:
+            logger.warning("No documents found for canonical subject '%s'", canonical_subject)
+            return []
 
-        return _filter
+        query_vector = self.embeddings.embed_query(query)
+        topic_terms = self._extract_topic_terms(topic, query)
+
+        ranked: List[tuple[float, Document]] = []
+
+        for index_id in candidate_indices:
+            document = self._doc_by_index.get(index_id)
+            if document is None:
+                continue
+
+            try:
+                raw_vector = self.vector_store.index.reconstruct(index_id)
+                doc_vector = raw_vector.tolist() if hasattr(raw_vector, "tolist") else list(raw_vector)
+                score = self._cosine_similarity(query_vector, doc_vector)
+            except Exception:
+                score = 0.0
+
+            score += self._topic_bonus(document, topic_terms)
+            ranked.append((score, document))
+
+        ranked.sort(key=lambda item: item[0], reverse=True)
+        return [document for _, document in ranked[:top_k]]
 
     def retrieve_documents(
         self,
         query: str,
         top_k: Optional[int] = None,
         subject: Optional[str] = None,
+        topic: Optional[str] = None,
     ) -> List[Document]:
         if not self.vector_store:
             raise RuntimeError("FAISS index is not loaded")
 
         k = top_k if top_k is not None else self.top_k
 
-        subject_filter = self._build_subject_filter(subject)
-        fetch_k = max(k * 6, 24)
-
-        try:
-            docs = self.vector_store.similarity_search(
-                query,
-                k=k,
-                fetch_k=fetch_k,
-                filter=subject_filter,
+        # Enforce strict subject-scoped retrieval before semantic ranking.
+        if subject:
+            docs = self._rank_subject_documents(
+                query=query,
+                subject=subject,
+                topic=topic,
+                top_k=k,
             )
+            logger.info(
+                "retrieved subject-scoped documents subject=%s topic=%s count=%s",
+                subject,
+                topic,
+                len(docs),
+            )
+            return docs
 
-            if subject_filter and not docs:
-                logger.warning(
-                    "No context matched subject filter '%s'; retrying retrieval without subject filter",
-                    subject,
-                )
-                docs = self.vector_store.similarity_search(
-                    query,
-                    k=k,
-                    fetch_k=fetch_k,
-                )
-        except TypeError:
-            docs = self.vector_store.similarity_search(query, k=fetch_k)
-            if subject_filter:
-                docs = [doc for doc in docs if subject_filter(doc.metadata)]
-
-            if subject_filter and not docs:
-                logger.warning(
-                    "No context matched subject filter '%s'; retrying retrieval without subject filter",
-                    subject,
-                )
-                docs = self.vector_store.similarity_search(query, k=fetch_k)
-
-            docs = docs[:k]
-
-        return docs
+        docs = self.vector_store.similarity_search(query, k=k)
+        return docs[:k]
 
     def retrieve_context(
         self,
         query: str,
         top_k: Optional[int] = None,
         subject: Optional[str] = None,
+        topic: Optional[str] = None,
     ) -> List[str]:
-        docs = self.retrieve_documents(query=query, top_k=top_k, subject=subject)
+        docs = self.retrieve_documents(query=query, top_k=top_k, subject=subject, topic=topic)
 
         contexts: List[str] = []
         for doc in docs:
@@ -187,8 +289,18 @@ def set_default_retriever(service: RetrieverService) -> None:
     _default_retriever = service
 
 
-def retrieve_context(query: str, top_k: int = 5, subject: Optional[str] = None) -> List[str]:
+def retrieve_context(
+    query: str,
+    top_k: int = 5,
+    subject: Optional[str] = None,
+    topic: Optional[str] = None,
+) -> List[str]:
     if _default_retriever is None:
         raise RuntimeError("RetrieverService has not been initialized")
 
-    return _default_retriever.retrieve_context(query=query, top_k=top_k, subject=subject)
+    return _default_retriever.retrieve_context(
+        query=query,
+        top_k=top_k,
+        subject=subject,
+        topic=topic,
+    )

@@ -32,6 +32,22 @@ const getTests = async (req, res) => {
   }
 }
 
+const getTestById = async (req, res) => {
+  try {
+    const result = await testService.getTestById(req.params.testId, req.user)
+
+    return res.status(200).json({
+      success: true,
+      data: result,
+    })
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message || "something went wrong",
+    })
+  }
+}
+
 const getTestLeaderboard = async (req, res) => {
   try {
     const result = await testService.getTestLeaderboard(req.params.testId, req.user, req.query)
@@ -295,6 +311,7 @@ const createAiGeneratedTest = async (req, res) => {
 module.exports = {
   createTest,
   getTests,
+  getTestById,
   getTestLeaderboard,
   updateTest,
   deleteTest,

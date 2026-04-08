@@ -91,6 +91,30 @@ const NIMCET_MARKING_SCHEME = [
   },
 ]
 
+const ENGLISH_TOPIC_KEYWORDS = [
+  "grammar",
+  "vocabulary",
+  "reading comprehension",
+  "comprehension",
+  "fill in the blanks",
+  "synonym",
+  "antonym",
+  "idiom",
+  "phrase",
+  "sentence",
+  "error detection",
+  "para jumbles",
+  "cloze",
+  "spelling",
+]
+
+const SUBJECT_DURATION_PER_QUESTION = {
+  Mathematics: 70 / 50,
+  "Analytical Ability & Logical Reasoning": 30 / 40,
+  "Computer Awareness": 10 / 20,
+  "General English": 10 / 10,
+}
+
 const createServiceError = (message, statusCode) => {
   const error = new Error(message)
   error.statusCode = statusCode
@@ -213,6 +237,127 @@ const normalizeText = (value) => {
   }
 
   return String(value).trim()
+}
+
+const isEnglishTopic = (topic) => {
+  const normalizedTopic = normalizeText(topic).toLowerCase()
+
+  if (!normalizedTopic) {
+    return false
+  }
+
+  return ENGLISH_TOPIC_KEYWORDS.some((keyword) => normalizedTopic.includes(keyword))
+}
+
+const resolveLogicalSubject = (subject, topic = "") => {
+  const normalizedSubject = normalizeText(subject).toLowerCase()
+
+  if (!normalizedSubject) {
+    return ""
+  }
+
+  if (normalizedSubject === "mathematics" || normalizedSubject === "math") {
+    return "Mathematics"
+  }
+
+  if (
+    normalizedSubject.includes("analytical") ||
+    normalizedSubject.includes("logical") ||
+    normalizedSubject.includes("reason")
+  ) {
+    return "Analytical Ability & Logical Reasoning"
+  }
+
+  if (normalizedSubject === "computer awareness & general english") {
+    return isEnglishTopic(topic) ? "General English" : "Computer Awareness"
+  }
+
+  if (normalizedSubject === "computer awareness" || normalizedSubject === "computer") {
+    return "Computer Awareness"
+  }
+
+  if (normalizedSubject === "general english" || normalizedSubject === "english") {
+    return "General English"
+  }
+
+  return normalizeText(subject)
+}
+
+const resolveRetrieverSubject = (subject) => {
+  const normalizedSubject = normalizeText(subject).toLowerCase()
+
+  if (!normalizedSubject) {
+    return ""
+  }
+
+  if (
+    normalizedSubject === "computer awareness & general english" ||
+    normalizedSubject === "computer awareness" ||
+    normalizedSubject === "computer" ||
+    normalizedSubject === "general english" ||
+    normalizedSubject === "english"
+  ) {
+    return "Computer Awareness & General English"
+  }
+
+  if (normalizedSubject === "mathematics" || normalizedSubject === "math") {
+    return "Mathematics"
+  }
+
+  if (
+    normalizedSubject.includes("analytical") ||
+    normalizedSubject.includes("logical") ||
+    normalizedSubject.includes("reason")
+  ) {
+    return "Analytical Ability & Logical Reasoning"
+  }
+
+  return normalizeText(subject)
+}
+
+const resolveSubjectMarking = (subject, topic = "") => {
+  const logicalSubject = resolveLogicalSubject(subject, topic)
+
+  if (logicalSubject === "Mathematics") {
+    return {
+      subject: logicalSubject,
+      marks: 12,
+      negative_marks: 3,
+    }
+  }
+
+  if (logicalSubject === "Analytical Ability & Logical Reasoning") {
+    return {
+      subject: logicalSubject,
+      marks: 6,
+      negative_marks: 1.5,
+    }
+  }
+
+  if (logicalSubject === "Computer Awareness") {
+    return {
+      subject: logicalSubject,
+      marks: 6,
+      negative_marks: 1.5,
+    }
+  }
+
+  if (logicalSubject === "General English") {
+    return {
+      subject: logicalSubject,
+      marks: 4,
+      negative_marks: 1,
+    }
+  }
+
+  throw createServiceError(`unsupported subject for AI marking: ${subject}`, 400)
+}
+
+const resolveTopicDurationMinutes = (subject, topic, questionCount) => {
+  const logicalSubject = resolveLogicalSubject(subject, topic)
+  const perQuestionMinutes = SUBJECT_DURATION_PER_QUESTION[logicalSubject] || 1
+
+  return Math.max(1, Math.round(questionCount * perQuestionMinutes))
 }
 
 const normalizeDifficulty = (value, fallback = "medium") => {
@@ -412,6 +557,68 @@ const normalizeSectionKey = (value) => {
   return ""
 }
 
+const parseSourcePage = (value) => {
+  if (value === undefined || value === null || value === "") {
+    return null
+  }
+
+  const parsed = Number(value)
+
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    return null
+  }
+
+  return parsed
+}
+
+const deriveTestSummaryFromSections = (sections = []) => {
+  const subjectSet = new Set()
+  const topicSet = new Set()
+  const difficultySet = new Set()
+
+  sections.forEach((section) => {
+    const questionMappings = section.testQuestions || []
+
+    questionMappings.forEach((mapping) => {
+      const question = mapping.question || mapping
+
+      const subject = normalizeText(question.subject)
+      const topic = normalizeText(question.topic)
+      const difficulty = normalizeText(question.difficulty).toLowerCase()
+
+      if (subject) {
+        subjectSet.add(subject)
+      }
+
+      if (topic) {
+        topicSet.add(topic)
+      }
+
+      if (difficulty) {
+        difficultySet.add(difficulty)
+      }
+    })
+  })
+
+  const resolveSummaryValue = (values, fallback) => {
+    if (values.size === 1) {
+      return [...values][0]
+    }
+
+    if (values.size > 1) {
+      return "Mixed"
+    }
+
+    return fallback
+  }
+
+  return {
+    subject: resolveSummaryValue(subjectSet, "General"),
+    topic: resolveSummaryValue(topicSet, "General"),
+    difficulty: resolveSummaryValue(difficultySet, "mixed"),
+  }
+}
+
 const extractOptionsFromQuestion = (rawQuestion) => {
   if (Array.isArray(rawQuestion?.options)) {
     const options = rawQuestion.options.map((item) => normalizeText(item)).filter(Boolean)
@@ -512,6 +719,22 @@ const normalizeGeneratedQuestion = (rawQuestion, defaults = {}) => {
   const difficulty = normalizeDifficulty(rawQuestion.difficulty ?? defaults.difficulty, "medium")
   const subject = normalizeText(rawQuestion.subject || defaults.subject) || "General"
   const topic = normalizeText(rawQuestion.topic || defaults.topic) || "General"
+  const concept = normalizeText(rawQuestion.concept || defaults.concept)
+  const sourceFile = normalizeText(
+    rawQuestion.source_file ||
+      rawQuestion.sourceFile ||
+      rawQuestion.source ||
+      defaults.source_file ||
+      defaults.sourceFile,
+  )
+  const sourcePage = parseSourcePage(
+    rawQuestion.source_page ??
+      rawQuestion.sourcePage ??
+      rawQuestion.page_number ??
+      rawQuestion.page ??
+      defaults.source_page ??
+      defaults.sourcePage,
+  )
 
   return {
     subject,
@@ -526,6 +749,9 @@ const normalizeGeneratedQuestion = (rawQuestion, defaults = {}) => {
     marks,
     negative_marks: negativeMarks,
     difficulty,
+    concept,
+    source_file: sourceFile || null,
+    source_page: sourcePage,
   }
 }
 
@@ -867,12 +1093,128 @@ const getTests = async (user) => {
       durationMinutes: true,
       scheduledStart: true,
       scheduledEnd: true,
+      testSections: {
+        orderBy: {
+          orderIndex: "asc",
+        },
+        select: {
+          sectionName: true,
+          testQuestions: {
+            orderBy: {
+              orderIndex: "asc",
+            },
+            select: {
+              question: {
+                select: {
+                  subject: true,
+                  topic: true,
+                  difficulty: true,
+                },
+              },
+            },
+          },
+        },
+      },
       createdAt: true,
       updatedAt: true,
     },
   })
 
-  return tests.map((test) => ({
+  return tests.map((test) => {
+    const summary = deriveTestSummaryFromSections(test.testSections)
+
+    return {
+      id: test.id,
+      coaching_id: test.coachingId,
+      test_series_id: test.testSeriesId,
+      title: test.title,
+      type: test.type,
+      total_questions: test.totalQuestions,
+      total_marks: test.totalMarks,
+      duration_minutes: test.durationMinutes,
+      subject: summary.subject,
+      topic: summary.topic,
+      difficulty: summary.difficulty,
+      scheduled_start: test.scheduledStart,
+      scheduled_end: test.scheduledEnd,
+      created_at: test.createdAt,
+      updated_at: test.updatedAt,
+    }
+  })
+}
+
+const getTestById = async (testId, user) => {
+  const coachingId = await resolveCoachingId(user)
+
+  const test = await prisma.test.findUnique({
+    where: {
+      id: testId,
+    },
+    select: {
+      id: true,
+      coachingId: true,
+      testSeriesId: true,
+      title: true,
+      type: true,
+      totalQuestions: true,
+      totalMarks: true,
+      durationMinutes: true,
+      scheduledStart: true,
+      scheduledEnd: true,
+      isActive: true,
+      createdAt: true,
+      updatedAt: true,
+      testSections: {
+        orderBy: {
+          orderIndex: "asc",
+        },
+        select: {
+          id: true,
+          sectionName: true,
+          orderIndex: true,
+          questionCount: true,
+          durationMinutes: true,
+          testQuestions: {
+            orderBy: {
+              orderIndex: "asc",
+            },
+            select: {
+              id: true,
+              orderIndex: true,
+              question: {
+                select: {
+                  id: true,
+                  subject: true,
+                  topic: true,
+                  questionText: true,
+                  optionA: true,
+                  optionB: true,
+                  optionC: true,
+                  optionD: true,
+                  correctOption: true,
+                  marks: true,
+                  negativeMarks: true,
+                  difficulty: true,
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  })
+
+  if (!test) {
+    throw createServiceError("test not found", 404)
+  }
+
+  if (test.coachingId !== coachingId) {
+    throw createServiceError("forbidden", 403)
+  }
+
+  const summary = deriveTestSummaryFromSections(test.testSections)
+
+  return {
     id: test.id,
     coaching_id: test.coachingId,
     test_series_id: test.testSeriesId,
@@ -881,11 +1223,38 @@ const getTests = async (user) => {
     total_questions: test.totalQuestions,
     total_marks: test.totalMarks,
     duration_minutes: test.durationMinutes,
+    subject: summary.subject,
+    topic: summary.topic,
+    difficulty: summary.difficulty,
+    is_active: test.isActive,
     scheduled_start: test.scheduledStart,
     scheduled_end: test.scheduledEnd,
     created_at: test.createdAt,
     updated_at: test.updatedAt,
-  }))
+    sections: test.testSections.map((section) => ({
+      id: section.id,
+      title: section.sectionName,
+      order_index: section.orderIndex,
+      question_count: section.questionCount,
+      duration_minutes: section.durationMinutes,
+      questions: section.testQuestions.map((mapping) => ({
+        test_question_id: mapping.id,
+        order_index: mapping.orderIndex,
+        id: mapping.question.id,
+        subject: mapping.question.subject,
+        topic: mapping.question.topic,
+        question_text: mapping.question.questionText,
+        option_a: mapping.question.optionA,
+        option_b: mapping.question.optionB,
+        option_c: mapping.question.optionC,
+        option_d: mapping.question.optionD,
+        correct_option: mapping.question.correctOption,
+        marks: mapping.question.marks,
+        negative_marks: mapping.question.negativeMarks,
+        difficulty: mapping.question.difficulty,
+      })),
+    })),
+  }
 }
 
 const updateTestSchedule = async (testId, payload, user) => {
@@ -960,6 +1329,28 @@ const updateTestSchedule = async (testId, payload, user) => {
     },
   })
 
+  const sectionsForSummary = await prisma.testSection.findMany({
+    where: {
+      testId: updatedTest.id,
+    },
+    select: {
+      sectionName: true,
+      testQuestions: {
+        select: {
+          question: {
+            select: {
+              subject: true,
+              topic: true,
+              difficulty: true,
+            },
+          },
+        },
+      },
+    },
+  })
+
+  const summary = deriveTestSummaryFromSections(sectionsForSummary)
+
   const approvedStudents = await prisma.student.findMany({
     where: {
       coachingId,
@@ -983,6 +1374,8 @@ const updateTestSchedule = async (testId, payload, user) => {
           toEmail: student.user.email,
           studentName: student.name,
           testTitle: updatedTest.title,
+          testSubject: summary.subject,
+          durationMinutes: updatedTest.durationMinutes,
           scheduledStart: updatedTest.scheduledStart,
           scheduledEnd: updatedTest.scheduledEnd,
         }),
@@ -997,6 +1390,9 @@ const updateTestSchedule = async (testId, payload, user) => {
     total_questions: updatedTest.totalQuestions,
     total_marks: updatedTest.totalMarks,
     duration_minutes: updatedTest.durationMinutes,
+    subject: summary.subject,
+    topic: summary.topic,
+    difficulty: summary.difficulty,
     is_active: updatedTest.isActive,
     scheduled_start: updatedTest.scheduledStart,
     scheduled_end: updatedTest.scheduledEnd,
@@ -1682,15 +2078,12 @@ const removeQuestionFromSection = async (sectionId, questionId, user) => {
 }
 
 const generateAiTopicTest = async (payload) => {
-  const subject = normalizeText(payload.subject)
+  const selectedSubject = normalizeText(payload.subject)
   const topic = normalizeText(payload.topic)
   const questionCount = parsePositiveInt(payload.question_count, "question_count")
-  const marks = parsePositiveInt(payload.marks, "marks")
-  const negativeMarks = parseNonNegativeNumber(payload.negative_marks, "negative_marks", 0)
   const difficulty = normalizeDifficulty(payload.difficulty, "medium")
-  const durationMinutes = parsePositiveInt(payload.duration, "duration")
 
-  if (!subject) {
+  if (!selectedSubject) {
     throw createServiceError("subject is required", 400)
   }
 
@@ -1698,13 +2091,17 @@ const generateAiTopicTest = async (payload) => {
     throw createServiceError("topic is required", 400)
   }
 
+  const resolvedMarking = resolveSubjectMarking(selectedSubject, topic)
+  const retrieverSubject = resolveRetrieverSubject(selectedSubject)
+  const durationMinutes = resolveTopicDurationMinutes(selectedSubject, topic, questionCount)
+
   const aiPayload = {
-    subject,
+    subject: retrieverSubject,
     topic,
     question_count: questionCount,
     difficulty,
-    marks,
-    negative_marks: negativeMarks,
+    marks: resolvedMarking.marks,
+    negative_marks: resolvedMarking.negative_marks,
     duration: durationMinutes,
   }
 
@@ -1719,22 +2116,29 @@ const generateAiTopicTest = async (payload) => {
     .slice(0, questionCount)
     .map((question) =>
       normalizeGeneratedQuestion(question, {
-        subject,
+        subject: resolvedMarking.subject,
         topic,
-        marks,
-        negative_marks: negativeMarks,
+        marks: resolvedMarking.marks,
+        negative_marks: resolvedMarking.negative_marks,
         difficulty,
       }),
     )
+    .map((question) => ({
+      ...question,
+      subject: resolvedMarking.subject,
+      marks: resolvedMarking.marks,
+      negative_marks: resolvedMarking.negative_marks,
+    }))
 
   return {
     test_type: "topic_wise",
-    subject,
+    subject: selectedSubject,
+    resolved_subject: resolvedMarking.subject,
     topic,
     requested_question_count: questionCount,
     generated_question_count: normalizedQuestions.length,
-    marks_per_question: marks,
-    negative_marks: negativeMarks,
+    marks_per_question: resolvedMarking.marks,
+    negative_marks: resolvedMarking.negative_marks,
     difficulty,
     duration_minutes: durationMinutes,
     questions: normalizedQuestions,
@@ -1948,14 +2352,32 @@ const createAiGeneratedTest = async (payload, user) => {
               difficulty: payload.difficulty,
             }),
           )
+          .map((question) => {
+            const resolvedMarking = resolveSubjectMarking(question.subject, question.topic)
+
+            return {
+              ...question,
+              subject: resolvedMarking.subject,
+              marks: resolvedMarking.marks,
+              negative_marks: resolvedMarking.negative_marks,
+            }
+          })
 
         if (!approvedQuestions.length) {
           return null
         }
 
+        const resolvedSectionDuration =
+          sectionDuration ||
+          resolveTopicDurationMinutes(
+            approvedQuestions[0]?.subject || section.subject,
+            approvedQuestions[0]?.topic || section.topic || sectionName,
+            approvedQuestions.length,
+          )
+
         return {
           section_name: sectionName,
-          duration_minutes: sectionDuration,
+          duration_minutes: resolvedSectionDuration,
           questions: approvedQuestions,
         }
       })
@@ -2088,8 +2510,10 @@ const createAiGeneratedTest = async (payload, user) => {
 }
 
 module.exports = {
+  resolveSubjectMarking,
   createTest,
   getTests,
+  getTestById,
   getTestLeaderboard,
   updateTest,
   deleteTest,
