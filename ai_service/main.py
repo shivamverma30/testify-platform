@@ -2,21 +2,26 @@
 
 from __future__ import annotations
 
+import os
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import List, Optional
 
+from dotenv import load_dotenv
 from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict, Field
 
+from config import require_gemini_api_key
 from services.question_generator import (
     DEFAULT_GEMINI_MODEL,
     QuestionGeneratorService,
     set_default_generator,
 )
 from services.retriever_service import RetrieverService, set_default_retriever
+
+load_dotenv()
 
 logging.basicConfig(
     level=logging.INFO,
@@ -109,8 +114,19 @@ async def lifespan(app: FastAPI):
     app.state.startup_error = None
     app.state.retriever_service = None
     app.state.question_generator_service = None
+    app.state.gemini_api_key_loaded = False
 
     try:
+        configured_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+        if configured_key:
+            configured_key = configured_key.strip()
+        if not configured_key:
+            configured_key = require_gemini_api_key()
+
+        app.state.gemini_api_key_loaded = True
+        logger.info("Gemini API key loaded successfully")
+        print("Gemini API key loaded successfully")
+
         base_dir = Path(__file__).resolve().parent
         index_path = base_dir / "vector_store" / "faiss_index"
 

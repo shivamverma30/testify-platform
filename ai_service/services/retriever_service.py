@@ -135,10 +135,29 @@ class RetrieverService:
                 fetch_k=fetch_k,
                 filter=subject_filter,
             )
+
+            if subject_filter and not docs:
+                logger.warning(
+                    "No context matched subject filter '%s'; retrying retrieval without subject filter",
+                    subject,
+                )
+                docs = self.vector_store.similarity_search(
+                    query,
+                    k=k,
+                    fetch_k=fetch_k,
+                )
         except TypeError:
             docs = self.vector_store.similarity_search(query, k=fetch_k)
             if subject_filter:
                 docs = [doc for doc in docs if subject_filter(doc.metadata)]
+
+            if subject_filter and not docs:
+                logger.warning(
+                    "No context matched subject filter '%s'; retrying retrieval without subject filter",
+                    subject,
+                )
+                docs = self.vector_store.similarity_search(query, k=fetch_k)
+
             docs = docs[:k]
 
         return docs

@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import logging
 import math
-import os
 import random
 import re
 import secrets
@@ -16,6 +15,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 import google.generativeai as genai
 from langchain_core.documents import Document
 
+from config import require_gemini_api_key
 from services.retriever_service import RetrieverService
 
 logger = logging.getLogger(__name__)
@@ -107,19 +107,26 @@ class QuestionGeneratorService:
         self.model_name = model_name
         self.retrieval_top_k = retrieval_top_k
         self.model: Optional[genai.GenerativeModel] = None
-        self.api_key: Optional[str] = None
+        self.api_key: str = ""
         self.last_generation_meta: Dict[str, Any] = {}
 
-        configured_api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-        self.api_key = configured_api_key.strip() if configured_api_key else None
+        self.api_key = require_gemini_api_key()
 
-        if self.api_key:
+        try:
             genai.configure(api_key=self.api_key)
             self.model = genai.GenerativeModel(self.model_name)
+        except Exception as error:
+            raise RuntimeError(
+                "Gemini initialization failed. Verify GEMINI_API_KEY/GOOGLE_API_KEY "
+                "and Gemini model access.",
+            ) from error
 
     def _ensure_model(self) -> genai.GenerativeModel:
         if self.model is None:
-            raise RuntimeError("GEMINI_API_KEY is not configured for question generation")
+            raise RuntimeError(
+                "GEMINI_API_KEY is not configured for question generation. "
+                "Set GEMINI_API_KEY (or GOOGLE_API_KEY) in ai_service/.env.",
+            )
         return self.model
 
     @staticmethod
