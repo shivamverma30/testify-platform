@@ -1,18 +1,25 @@
 /* eslint-disable no-console */
 const fs = require("fs")
 const path = require("path")
+const dotenv = require("dotenv")
 const bcrypt = require("bcrypt")
 const xlsx = require("xlsx")
 const prisma = require("../db")
 
+// Load environment variables
+dotenv.config({ path: path.join(__dirname, "../.env") })
+
 const BASE_URL = process.env.BACKEND_URL || "http://localhost:5000"
 const RUN_ID = `e2e_${Date.now()}`
 
-const SUPER_ADMIN_EMAIL = "shivam3006.nitb@gmail.com"
-const SUPER_ADMIN_PASSWORD_CANDIDATES = [
-  'Hh>vT5FZ$1DW0^YS"hY"Xj?Â£',
-  'Hh>vT5FZ$1DW0^YS"hY"Xj?£',
-]
+const SUPER_ADMIN_EMAIL = process.env.SUPER_ADMIN_EMAIL || "shivam3006.nitb@gmail.com"
+const SUPER_ADMIN_PASSWORD = process.env.SUPER_ADMIN_PASSWORD
+const SUPER_ADMIN_PASSWORD_CANDIDATES = SUPER_ADMIN_PASSWORD
+  ? [SUPER_ADMIN_PASSWORD]
+  : [
+      'Hh>vT5FZ$1DW0^YS"hY"Xj?£',
+      'Hh>vT5FZ$1DW0^YS"hY"Xj?Â£',
+    ]
 
 const state = {
   runId: RUN_ID,

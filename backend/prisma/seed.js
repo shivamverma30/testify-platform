@@ -7,13 +7,25 @@ dotenv.config({ path: path.join(__dirname, "../.env") })
 
 const prisma = new PrismaClient()
 
-const SUPER_ADMIN_EMAIL = "shivam3006.nitb@gmail.com"
-const SUPER_ADMIN_PASSWORD = 'Hh>vT5FZ$1DW0^YS"hY"Xj?£'
-
 const main = async () => {
+  const SUPER_ADMIN_EMAIL = process.env.SUPER_ADMIN_EMAIL
+  const SUPER_ADMIN_PASSWORD = process.env.SUPER_ADMIN_PASSWORD
+
+  if (!SUPER_ADMIN_EMAIL) {
+    console.error("SUPER_ADMIN_EMAIL is not set in .env file")
+    process.exit(1)
+  }
+
+  if (!SUPER_ADMIN_PASSWORD) {
+    console.error("SUPER_ADMIN_PASSWORD is not set in .env file")
+    process.exit(1)
+  }
+
+  const normalizedEmail = SUPER_ADMIN_EMAIL.toLowerCase()
+
   const existingUser = await prisma.user.findUnique({
     where: {
-      email: SUPER_ADMIN_EMAIL,
+      email: normalizedEmail,
     },
     select: {
       id: true,
@@ -21,21 +33,22 @@ const main = async () => {
   })
 
   if (existingUser) {
-    console.log("Super admin user already exists.")
+    console.log("Super admin user already exists")
     return
   }
 
   const passwordHash = await bcrypt.hash(SUPER_ADMIN_PASSWORD, 10)
 
-  await prisma.user.create({
+  const user = await prisma.user.create({
     data: {
-      email: SUPER_ADMIN_EMAIL,
+      email: normalizedEmail,
       passwordHash,
       role: "super_admin",
+      isActive: true,
     },
   })
 
-  console.log("Super admin user created.")
+  console.log(`Super admin created: ${user.email}`)
 }
 
 main()

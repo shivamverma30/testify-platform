@@ -1,50 +1,30 @@
 const studentService = require("../services/student.service")
+const { sendResponse, sendError } = require("../utils/controller")
 
 const registerStudent = async (req, res) => {
   try {
     const result = await studentService.registerStudent(req.body)
-
-    return res.status(201).json({
-      success: true,
-      data: result,
-    })
+    return sendResponse(res, 201, result)
   } catch (error) {
-    return res.status(error.statusCode || 500).json({
-      success: false,
-      message: error.message || "something went wrong",
-    })
+    return sendError(res, error)
   }
 }
 
 const getAvailableTests = async (req, res) => {
   try {
     const result = await studentService.getAvailableTests(req.user)
-
-    return res.status(200).json({
-      success: true,
-      data: result,
-    })
+    return sendResponse(res, 200, result)
   } catch (error) {
-    return res.status(error.statusCode || 500).json({
-      success: false,
-      message: error.message || "something went wrong",
-    })
+    return sendError(res, error)
   }
 }
 
 const getUpcomingTests = async (req, res) => {
   try {
     const result = await studentService.getUpcomingTests(req.user)
-
-    return res.status(200).json({
-      success: true,
-      data: result,
-    })
+    return sendResponse(res, 200, result)
   } catch (error) {
-    return res.status(error.statusCode || 500).json({
-      success: false,
-      message: error.message || "something went wrong",
-    })
+    return sendError(res, error)
   }
 }
 

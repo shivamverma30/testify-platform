@@ -1,82 +1,48 @@
 const authService = require("../services/auth.service")
+const { sendResponse, sendError } = require("../utils/controller")
 
 const register = async (req, res) => {
   try {
     const user = await authService.registerUser(req.body)
-
-    return res.status(201).json({
-      success: true,
-      data: user,
-    })
+    return sendResponse(res, 201, user)
   } catch (error) {
-    return res.status(error.statusCode || 500).json({
-      success: false,
-      message: error.message || "something went wrong",
-    })
+    return sendError(res, error)
   }
 }
 
 const login = async (req, res) => {
   try {
     const result = await authService.loginUser(req.body)
-
-    return res.status(200).json({
-      success: true,
-      data: result,
-    })
+    return sendResponse(res, 200, result)
   } catch (error) {
-    return res.status(error.statusCode || 500).json({
-      success: false,
-      message: error.message || "something went wrong",
-    })
+    return sendError(res, error)
   }
 }
 
 const registerCoaching = async (req, res) => {
   try {
     const result = await authService.registerCoaching(req.body)
-
-    return res.status(201).json({
-      success: true,
-      data: result,
-    })
+    return sendResponse(res, 201, result)
   } catch (error) {
-    return res.status(error.statusCode || 500).json({
-      success: false,
-      message: error.message || "something went wrong",
-    })
+    return sendError(res, error)
   }
 }
 
 const registerStudent = async (req, res) => {
   try {
     const result = await authService.registerStudent(req.body)
-
-    return res.status(201).json({
-      success: true,
-      data: result,
-    })
+    return sendResponse(res, 201, result)
   } catch (error) {
-    return res.status(error.statusCode || 500).json({
-      success: false,
-      message: error.message || "something went wrong",
-    })
+    return sendError(res, error)
   }
 }
 
 const getApprovedCoachings = async (req, res) => {
   try {
     const result = await authService.getApprovedCoachingOptions()
-
-    return res.status(200).json({
-      success: true,
-      data: result,
-    })
+    return sendResponse(res, 200, result)
   } catch (error) {
-    return res.status(error.statusCode || 500).json({
-      success: false,
-      message: error.message || "something went wrong",
-    })
+    return sendError(res, error)
   }
 }
 

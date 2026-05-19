@@ -13,17 +13,12 @@ const toNumber = (value) => {
   if (value === null || value === undefined) {
     return 0
   }
-
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : 0
 }
 
 const toPercent = (numerator, denominator) => {
-  if (!denominator) {
-    return 0
-  }
-
-  return Number(((numerator / denominator) * 100).toFixed(2))
+  return !denominator ? 0 : Number(((numerator / denominator) * 100).toFixed(2))
 }
 
 const normalizeListQuery = (query = {}) => {
@@ -35,11 +30,7 @@ const normalizeListQuery = (query = {}) => {
   const limit = Number.isInteger(parsedLimit) && parsedLimit > 0 ? Math.min(parsedLimit, 100) : 10
   const topN = Number.isInteger(parsedTopN) && parsedTopN > 0 ? Math.min(parsedTopN, 100) : null
 
-  return {
-    page,
-    limit,
-    topN,
-  }
+  return { page, limit, topN }
 }
 
 const buildPaginationMeta = (totalItems, page, limit) => {

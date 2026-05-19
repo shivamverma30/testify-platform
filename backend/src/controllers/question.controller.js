@@ -1,67 +1,40 @@
 const questionService = require("../services/question.service")
 const fs = require("fs/promises")
+const { sendResponse, sendError } = require("../utils/controller")
 
 const addQuestion = async (req, res) => {
   try {
     const result = await questionService.addQuestion(req.body, req.user)
-
-    return res.status(201).json({
-      success: true,
-      data: result,
-    })
+    return sendResponse(res, 201, result)
   } catch (error) {
-    return res.status(error.statusCode || 500).json({
-      success: false,
-      message: error.message || "something went wrong",
-    })
+    return sendError(res, error)
   }
 }
 
 const getQuestions = async (req, res) => {
   try {
     const result = await questionService.getQuestions(req.query, req.user)
-
-    return res.status(200).json({
-      success: true,
-      data: result,
-    })
+    return sendResponse(res, 200, result)
   } catch (error) {
-    return res.status(error.statusCode || 500).json({
-      success: false,
-      message: error.message || "something went wrong",
-    })
+    return sendError(res, error)
   }
 }
 
 const updateQuestion = async (req, res) => {
   try {
     const result = await questionService.updateQuestion(req.params.id, req.body, req.user)
-
-    return res.status(200).json({
-      success: true,
-      data: result,
-    })
+    return sendResponse(res, 200, result)
   } catch (error) {
-    return res.status(error.statusCode || 500).json({
-      success: false,
-      message: error.message || "something went wrong",
-    })
+    return sendError(res, error)
   }
 }
 
 const deleteQuestion = async (req, res) => {
   try {
     const result = await questionService.deleteQuestion(req.params.id, req.user)
-
-    return res.status(200).json({
-      success: true,
-      data: result,
-    })
+    return sendResponse(res, 200, result)
   } catch (error) {
-    return res.status(error.statusCode || 500).json({
-      success: false,
-      message: error.message || "something went wrong",
-    })
+    return sendError(res, error)
   }
 }
 
@@ -75,7 +48,6 @@ const bulkUploadQuestions = async (req, res) => {
 
   try {
     const summary = await questionService.bulkUploadQuestionsFromCsv(req.file.path, req.user)
-
     return res.status(200).json({
       success: true,
       uploaded: summary.uploaded,
@@ -83,14 +55,11 @@ const bulkUploadQuestions = async (req, res) => {
       errors: summary.errors,
     })
   } catch (error) {
-    return res.status(error.statusCode || 500).json({
-      success: false,
-      message: error.message || "something went wrong",
-    })
+    return sendError(res, error)
   } finally {
     try {
       await fs.unlink(req.file.path)
-    } catch (error) {
+    } catch (e) {
       // ignore cleanup error
     }
   }

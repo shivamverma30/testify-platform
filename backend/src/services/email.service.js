@@ -1,6 +1,6 @@
 const nodemailer = require("nodemailer")
 
-const SUPER_ADMIN_EMAIL = "shivam3006.nitb@gmail.com"
+const SUPER_ADMIN_EMAIL = process.env.SUPER_ADMIN_EMAIL || "shivam3006.nitb@gmail.com"
 
 const isEmailConfigured = () => {
   return Boolean(
